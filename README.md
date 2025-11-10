@@ -3,7 +3,7 @@
 Interactive Streamlit dashboard for visualizing and analyzing end to end sglang benchmarks run on SLURM clusters.
 
 > [!NOTE]
-> You must use the slurm jobs folder in the dynamo repository to run the job so that this benchmarking tools can analyze it
+> You must use the [slurm jobs folder](https://github.com/ai-dynamo/dynamo/tree/main/examples/backends/sglang/slurm_jobs) in the dynamo repository to run the job so that this benchmarking tools can analyze it
 
 ## Quick Start
 

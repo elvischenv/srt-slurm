@@ -86,20 +86,65 @@ class RunMetadata:
 
 @dataclass
 class ProfilerResults:
-    """Results from profiler benchmarks."""
+    """Results from profiler benchmarks.
+    
+    Parses 32 out of 39 fields from benchmark JSON output.
+    
+    NOT PARSED (7 fields):
+    - input_lens, output_lens, ttfts, itls: Per-request arrays (too large for in-memory storage)
+    - errors, generated_texts: Per-request data (not needed for aggregate analysis)
+    - tokenizer_id, best_of, burstiness: Metadata not critical for dashboards
+    """
 
     profiler_type: str
     isl: str
     osl: str
     concurrencies: str = ""
     req_rate: str = ""
-    # Benchmark results (populated from actual benchmark output files)
+    
+    # Primary throughput metrics (per concurrency level)
     output_tps: list[float] = field(default_factory=list)
-    mean_itl_ms: list[float] = field(default_factory=list)
+    total_tps: list[float] = field(default_factory=list)
+    request_throughput: list[float] = field(default_factory=list)
+    request_goodput: list[float | None] = field(default_factory=list)
+    concurrency_values: list[int] = field(default_factory=list)
+    request_rate: list[float] = field(default_factory=list)
+    
+    # Latency metrics - mean (per concurrency level)
     mean_ttft_ms: list[float] = field(default_factory=list)
     mean_tpot_ms: list[float] = field(default_factory=list)
-    request_rate: list[float] = field(default_factory=list)
-    concurrency_values: list[int] = field(default_factory=list)
+    mean_itl_ms: list[float] = field(default_factory=list)
+    mean_e2el_ms: list[float] = field(default_factory=list)
+    
+    # Latency metrics - median (per concurrency level)
+    median_ttft_ms: list[float] = field(default_factory=list)
+    median_tpot_ms: list[float] = field(default_factory=list)
+    median_itl_ms: list[float] = field(default_factory=list)
+    median_e2el_ms: list[float] = field(default_factory=list)
+    
+    # Latency metrics - p99 (per concurrency level)
+    p99_ttft_ms: list[float] = field(default_factory=list)
+    p99_tpot_ms: list[float] = field(default_factory=list)
+    p99_itl_ms: list[float] = field(default_factory=list)
+    p99_e2el_ms: list[float] = field(default_factory=list)
+    
+    # Latency metrics - std dev (per concurrency level)
+    std_ttft_ms: list[float] = field(default_factory=list)
+    std_tpot_ms: list[float] = field(default_factory=list)
+    std_itl_ms: list[float] = field(default_factory=list)
+    std_e2el_ms: list[float] = field(default_factory=list)
+    
+    # Token counts (per concurrency level)
+    total_input_tokens: list[int] = field(default_factory=list)
+    total_output_tokens: list[int] = field(default_factory=list)
+    
+    # Run metadata (per concurrency level)
+    backend: list[str] = field(default_factory=list)
+    model_id: list[str] = field(default_factory=list)
+    date: list[str] = field(default_factory=list)
+    duration: list[float] = field(default_factory=list)
+    completed: list[int] = field(default_factory=list)
+    num_prompts: list[int] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, json_data: dict) -> "ProfilerResults":
@@ -125,14 +170,51 @@ class ProfilerResults:
         """Add actual benchmark results from profiler output files.
 
         Args:
-            results: Dict with concurrencies, output_tps, mean_itl_ms, etc.
+            results: Dict with all benchmark metrics from parsed JSON files
         """
+        # Primary metrics
         self.concurrency_values = results.get("concurrencies", [])
         self.output_tps = results.get("output_tps", [])
-        self.mean_itl_ms = results.get("mean_itl_ms", [])
+        self.total_tps = results.get("total_tps", [])
+        self.request_throughput = results.get("request_throughput", [])
+        self.request_goodput = results.get("request_goodput", [])
+        self.request_rate = results.get("request_rate", [])
+        
+        # Mean latencies
         self.mean_ttft_ms = results.get("mean_ttft_ms", [])
         self.mean_tpot_ms = results.get("mean_tpot_ms", [])
-        self.request_rate = results.get("request_rate", [])
+        self.mean_itl_ms = results.get("mean_itl_ms", [])
+        self.mean_e2el_ms = results.get("mean_e2el_ms", [])
+        
+        # Median latencies
+        self.median_ttft_ms = results.get("median_ttft_ms", [])
+        self.median_tpot_ms = results.get("median_tpot_ms", [])
+        self.median_itl_ms = results.get("median_itl_ms", [])
+        self.median_e2el_ms = results.get("median_e2el_ms", [])
+        
+        # P99 latencies
+        self.p99_ttft_ms = results.get("p99_ttft_ms", [])
+        self.p99_tpot_ms = results.get("p99_tpot_ms", [])
+        self.p99_itl_ms = results.get("p99_itl_ms", [])
+        self.p99_e2el_ms = results.get("p99_e2el_ms", [])
+        
+        # Std dev latencies
+        self.std_ttft_ms = results.get("std_ttft_ms", [])
+        self.std_tpot_ms = results.get("std_tpot_ms", [])
+        self.std_itl_ms = results.get("std_itl_ms", [])
+        self.std_e2el_ms = results.get("std_e2el_ms", [])
+        
+        # Token counts
+        self.total_input_tokens = results.get("total_input_tokens", [])
+        self.total_output_tokens = results.get("total_output_tokens", [])
+        
+        # Metadata
+        self.backend = results.get("backend", [])
+        self.model_id = results.get("model_id", [])
+        self.date = results.get("date", [])
+        self.duration = results.get("duration", [])
+        self.completed = results.get("completed", [])
+        self.num_prompts = results.get("num_prompts", [])
 
 
 @dataclass

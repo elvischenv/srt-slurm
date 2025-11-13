@@ -110,6 +110,7 @@ def _run_to_dict(run) -> dict:
         "osl": run.profiler.osl,
         "concurrencies": run.profiler.concurrency_values,
         "output_tps": run.profiler.output_tps,
+        "total_tps": run.profiler.total_tps,
         "mean_itl_ms": run.profiler.mean_itl_ms,
         "mean_ttft_ms": run.profiler.mean_ttft_ms,
         "mean_tpot_ms": run.profiler.mean_tpot_ms,
@@ -217,12 +218,16 @@ def _runs_to_dataframe(run_dicts: list[dict]):
 
         run_id = run.get("slurm_job_id", "Unknown")
         output_tps = run.get("output_tps", [])
+        total_tps = run.get("total_tps", [])
         concurrencies = run.get("concurrencies", [])
 
         # Create a row for each concurrency level
         for i in range(len(output_tps)):
             tps = output_tps[i]
             tps_per_gpu = tps / total_gpus
+            
+            # Get total TPS for this concurrency level
+            total_token_tps = total_tps[i] if i < len(total_tps) else None
 
             tpot = run.get("mean_tpot_ms", [])[i] if i < len(run.get("mean_tpot_ms", [])) else None
             tps_per_user = 1000 / tpot if tpot and tpot > 0 else 0
@@ -244,6 +249,7 @@ def _runs_to_dataframe(run_dicts: list[dict]):
                 else "N/A",
                 "Concurrency": concurrencies[i] if i < len(concurrencies) else "N/A",
                 "Output TPS": tps,
+                "Total TPS": total_token_tps if total_token_tps else "N/A",
                 "Output TPS/GPU": tps_per_gpu,
                 "Output TPS/User": tps_per_user,
                 "Mean TTFT (ms)": run.get("mean_ttft_ms", [])[i]
@@ -730,6 +736,12 @@ def main():
 
     # Pareto options
     st.sidebar.header("Pareto Graph Options")
+    y_axis_metric = st.sidebar.radio(
+        "Y-axis metric",
+        options=["Output TPS/GPU", "Total TPS"],
+        index=0,
+        help="Choose between per-GPU efficiency (decode only) or total throughput (input + output)",
+    )
     show_cutoff = st.sidebar.checkbox("Show TPS/User cutoff line", value=False)
     cutoff_value = st.sidebar.number_input(
         "Cutoff value (TPS/User)",
@@ -785,13 +797,20 @@ def main():
 
     with tab1:
         st.subheader("Pareto Frontier Analysis")
-        st.markdown("""
-        This graph shows the trade-off between **Output TPS/GPU** (efficiency) and
-        **Output TPS/User** (throughput per user).
-        """)
+        
+        if y_axis_metric == "Total TPS":
+            st.markdown("""
+            This graph shows the trade-off between **Total Token Throughput** (input + output tokens/s) and
+            **Output TPS/User** (throughput per user).
+            """)
+        else:
+            st.markdown("""
+            This graph shows the trade-off between **Output TPS/GPU** (decode efficiency) and
+            **Output TPS/User** (throughput per user).
+            """)
 
         pareto_fig = create_pareto_graph(
-            df, selected_runs, show_cutoff, cutoff_value, show_frontier
+            df, selected_runs, show_cutoff, cutoff_value, show_frontier, y_axis_metric
         )
         pareto_fig.update_xaxes(showgrid=True)
         pareto_fig.update_yaxes(showgrid=True)
@@ -800,7 +819,7 @@ def main():
 
         # Debug info for frontier
         if show_frontier:
-            frontier_points = calculate_pareto_frontier(df)
+            frontier_points = calculate_pareto_frontier(df, y_axis_metric)
             st.caption(
                 f"🔍 Debug: Frontier has {len(frontier_points)} points across {len(df)} total data points"
             )

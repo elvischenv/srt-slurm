@@ -212,44 +212,132 @@ class RunLoader:
                 with open(filepath) as f:
                     content = json.load(f)
 
-                    # Parse based on profiler type (vllm/sglang use same format)
-                    res = [
-                        content.get("max_concurrency"),
-                        content.get("output_throughput"),
-                        content.get("mean_itl_ms"),
-                        content.get("mean_ttft_ms"),
-                        content.get("request_rate"),
-                    ]
-
-                    if "mean_tpot_ms" in content:
-                        res.append(content["mean_tpot_ms"])
+                    # Parse all available metrics from benchmark output
+                    res = {
+                        "max_concurrency": content.get("max_concurrency"),
+                        # Throughput metrics
+                        "output_throughput": content.get("output_throughput"),
+                        "total_token_throughput": content.get("total_token_throughput"),
+                        "request_throughput": content.get("request_throughput"),
+                        "request_goodput": content.get("request_goodput"),
+                        "request_rate": content.get("request_rate"),
+                        # Mean latencies
+                        "mean_ttft_ms": content.get("mean_ttft_ms"),
+                        "mean_tpot_ms": content.get("mean_tpot_ms"),
+                        "mean_itl_ms": content.get("mean_itl_ms"),
+                        "mean_e2el_ms": content.get("mean_e2el_ms"),
+                        # Median latencies
+                        "median_ttft_ms": content.get("median_ttft_ms"),
+                        "median_tpot_ms": content.get("median_tpot_ms"),
+                        "median_itl_ms": content.get("median_itl_ms"),
+                        "median_e2el_ms": content.get("median_e2el_ms"),
+                        # P99 latencies
+                        "p99_ttft_ms": content.get("p99_ttft_ms"),
+                        "p99_tpot_ms": content.get("p99_tpot_ms"),
+                        "p99_itl_ms": content.get("p99_itl_ms"),
+                        "p99_e2el_ms": content.get("p99_e2el_ms"),
+                        # Std dev latencies
+                        "std_ttft_ms": content.get("std_ttft_ms"),
+                        "std_tpot_ms": content.get("std_tpot_ms"),
+                        "std_itl_ms": content.get("std_itl_ms"),
+                        "std_e2el_ms": content.get("std_e2el_ms"),
+                        # Token counts
+                        "total_input_tokens": content.get("total_input_tokens"),
+                        "total_output_tokens": content.get("total_output_tokens"),
+                        # Metadata
+                        "backend": content.get("backend"),
+                        "model_id": content.get("model_id"),
+                        "date": content.get("date"),
+                        "duration": content.get("duration"),
+                        "completed": content.get("completed"),
+                        "num_prompts": content.get("num_prompts"),
+                    }
 
                     result.append(res)
             except Exception as e:
                 logger.warning(f"Error parsing {filepath}: {e}")
                 continue
 
-        # Organize results
+        # Organize results - sort by concurrency
         out = {
-            "request_rate": [],
+            # Primary metrics
             "concurrencies": [],
             "output_tps": [],
-            "mean_itl_ms": [],
+            "total_tps": [],
+            "request_throughput": [],
+            "request_goodput": [],
+            "request_rate": [],
+            # Mean latencies
             "mean_ttft_ms": [],
             "mean_tpot_ms": [],
+            "mean_itl_ms": [],
+            "mean_e2el_ms": [],
+            # Median latencies
+            "median_ttft_ms": [],
+            "median_tpot_ms": [],
+            "median_itl_ms": [],
+            "median_e2el_ms": [],
+            # P99 latencies
+            "p99_ttft_ms": [],
+            "p99_tpot_ms": [],
+            "p99_itl_ms": [],
+            "p99_e2el_ms": [],
+            # Std dev latencies
+            "std_ttft_ms": [],
+            "std_tpot_ms": [],
+            "std_itl_ms": [],
+            "std_e2el_ms": [],
+            # Token counts
+            "total_input_tokens": [],
+            "total_output_tokens": [],
+            # Metadata
+            "backend": [],
+            "model_id": [],
+            "date": [],
+            "duration": [],
+            "completed": [],
+            "num_prompts": [],
         }
 
-        for data in sorted(result, key=lambda x: x[0] if x[0] else 0):
-            if len(data) >= 5:
-                con, tps, itl, ttft, req_rate = data[0:5]
-                out["concurrencies"].append(con)
-                out["output_tps"].append(tps)
-                out["mean_itl_ms"].append(itl)
-                out["mean_ttft_ms"].append(ttft)
-                out["request_rate"].append(req_rate)
-
-                if len(data) >= 6:
-                    out["mean_tpot_ms"].append(data[5])
+        # Sort by concurrency and aggregate
+        for data in sorted(result, key=lambda x: x.get("max_concurrency", 0) or 0):
+            out["concurrencies"].append(data.get("max_concurrency"))
+            # Throughput
+            out["output_tps"].append(data.get("output_throughput"))
+            out["total_tps"].append(data.get("total_token_throughput"))
+            out["request_throughput"].append(data.get("request_throughput"))
+            out["request_goodput"].append(data.get("request_goodput"))
+            out["request_rate"].append(data.get("request_rate"))
+            # Mean latencies
+            out["mean_ttft_ms"].append(data.get("mean_ttft_ms"))
+            out["mean_tpot_ms"].append(data.get("mean_tpot_ms"))
+            out["mean_itl_ms"].append(data.get("mean_itl_ms"))
+            out["mean_e2el_ms"].append(data.get("mean_e2el_ms"))
+            # Median latencies
+            out["median_ttft_ms"].append(data.get("median_ttft_ms"))
+            out["median_tpot_ms"].append(data.get("median_tpot_ms"))
+            out["median_itl_ms"].append(data.get("median_itl_ms"))
+            out["median_e2el_ms"].append(data.get("median_e2el_ms"))
+            # P99 latencies
+            out["p99_ttft_ms"].append(data.get("p99_ttft_ms"))
+            out["p99_tpot_ms"].append(data.get("p99_tpot_ms"))
+            out["p99_itl_ms"].append(data.get("p99_itl_ms"))
+            out["p99_e2el_ms"].append(data.get("p99_e2el_ms"))
+            # Std dev latencies
+            out["std_ttft_ms"].append(data.get("std_ttft_ms"))
+            out["std_tpot_ms"].append(data.get("std_tpot_ms"))
+            out["std_itl_ms"].append(data.get("std_itl_ms"))
+            out["std_e2el_ms"].append(data.get("std_e2el_ms"))
+            # Token counts
+            out["total_input_tokens"].append(data.get("total_input_tokens"))
+            out["total_output_tokens"].append(data.get("total_output_tokens"))
+            # Metadata
+            out["backend"].append(data.get("backend"))
+            out["model_id"].append(data.get("model_id"))
+            out["date"].append(data.get("date"))
+            out["duration"].append(data.get("duration"))
+            out["completed"].append(data.get("completed"))
+            out["num_prompts"].append(data.get("num_prompts"))
 
         return out
 

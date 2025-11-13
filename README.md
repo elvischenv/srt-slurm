@@ -1,17 +1,45 @@
-# SRT Slurm Benchmark Dashboard
+# SRT Slurm
 
-Interactive Streamlit dashboard for visualizing and analyzing end to end sglang benchmarks run on SLURM clusters.
+Benchmarking toolkit for Dynamo and SGLang on SLURM.
 
-> [!NOTE]
-> You must use the [slurm jobs folder](https://github.com/ai-dynamo/dynamo/tree/main/examples/backends/sglang/slurm_jobs) in the dynamo repository to run the job so that this benchmarking tools can analyze it
+## Run a benchmark
 
-## Quick Start
+1. Run `make setup` to download the neccesary dynamo dependencies. This pulls in `nats` and `etcd` and the dynamo pip wheels. This allows you to use any container found on the [lmsys dockerhub](https://hub.docker.com/r/lmsysorg/sglang/tags) and use dynamo orchestration.
+
+2. Run your very first benchmark using the following python command. WIP to make this command much much shorter and possibly hold some of the common pieces in a configuration file.
+
+```bash
+python3 submit_job_script.py \
+  --model-dir /mnt/lustre01/models/deepseek-r1-0528-fp4-v2 \
+  --container-image /mnt/lustre01/users/slurm-shared/ishan/lmsysorg+sglang+v0.5.5.post2.sqsh \
+  --gpus-per-node 4 \
+  --config-dir /mnt/lustre01/users/slurm-shared/ishan/srt-slurm/configs \
+  --gpu-type gb200-fp4 \
+  --network-interface enP6p9s0np0 \
+  --prefill-nodes 1 \
+  --decode-nodes 12 \
+  --prefill-workers 1 \
+  --decode-workers 1 \
+  --account nvidia \
+  --partition batch \
+  --time-limit 4:00:00 \
+  --enable-multiple-frontends \
+  --num-additional-frontends 9 \
+  --profiler "type=vllm; isl=1024; osl=1024; concurrencies=1x8x32x128x512x1024x2048x4096x8192; req-rate=inf" \
+  --script-variant max-tpt \
+  --use-dynamo-whls \
+  --log-dir /mnt/lustre01/users-public/slurm-shared/joblogs
+```
+
+For more info on the submission script see [slurm_jobs/README.md](slurm_jobs/README.md)
+
+## Run the UI
 
 ```bash
 ./run_dashboard.sh
 ```
 
-The dashboard will open at http://localhost:8501 and scan the current directory for benchmark runs.
+The dashboard will open at http://localhost:8501 and scan the current directory for benchmark runs. You can specify your own log directory in the UI itself.
 
 ## What It Does
 
@@ -31,36 +59,9 @@ The dashboard will open at http://localhost:8501 and scan the current directory 
 - **TPOT** - Time per output token (lower = faster generation)
 - **ITL** - Inter-token latency (lower = smoother streaming)
 
-## Installation
-
-**With uv (recommended):**
-
-```bash
-# Install uv if you haven't already
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Run the dashboard (uv handles dependencies automatically)
-./run_dashboard.sh
-```
-
-## Development
-
-```bash
-# Install with dev dependencies
-uv sync --extra dev
-
-# Setup pre-commit hooks
-pre-commit install
-
-# Run linting and type checking
-make lint
-
-# Run tests
-uv run python -m tests.test_basic
-uv run python -m tests.test_aggregations
-```
-
 ## Directory Structure
+
+This structure comes built into the scripts. WIP to handle other directory structures.
 
 The app expects benchmark runs in subdirectories with:
 
@@ -68,29 +69,3 @@ The app expects benchmark runs in subdirectories with:
 - `vllm_isl_*_osl_*/` containing `*.json` result files
 - `*_config.json` files for node configurations
 - `*_prefill_*.err` and `*_decode_*.err` files for node metrics
-
-## Architecture
-
-Uses a **class-based architecture** with type-safe models:
-
-```python
-from srtslurm import RunLoader, NodeAnalyzer
-
-# Load benchmark runs from {jobid}.json files
-loader = RunLoader(".")
-runs = loader.load_all()  # Returns List[BenchmarkRun]
-
-# Access typed data
-run = runs[0]
-print(f"{run.job_id}: {run.metadata.formatted_date}")
-print(f"Topology: {run.metadata.prefill_nodes}P/{run.metadata.decode_nodes}D")
-print(f"GPUs: {run.metadata.total_gpus}")
-
-# Analyze node metrics from .err log files
-analyzer = NodeAnalyzer()
-nodes = analyzer.parse_run_logs(run.metadata.path)
-prefill = analyzer.get_prefill_nodes(nodes)
-decode = analyzer.get_decode_nodes(nodes)
-```
-
-See `CLASS_BASED_USAGE.md` for detailed API documentation and `LOG_STRUCTURE.md` for file formats.

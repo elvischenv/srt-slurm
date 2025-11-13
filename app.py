@@ -117,7 +117,7 @@ def _run_to_dict(run) -> dict:
     }
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="Loading node metrics from logs...")
 def load_node_metrics(run_path: str):
     """Load and cache node metrics from .err files.
 
@@ -941,15 +941,16 @@ def main():
 
         # Parse log files for all selected runs (cached)
         all_node_metrics = []
-        for run in filtered_runs:
-            run_path = run.get("path", "")
-            run_id = run.get("slurm_job_id", "Unknown")
-            if run_path and os.path.exists(run_path):
-                node_metrics = load_node_metrics(run_path)
-                # Add run_id to each node for identification in multi-run comparisons
-                for node_data in node_metrics:
-                    node_data["run_id"] = run_id
-                all_node_metrics.extend(node_metrics)
+        with st.spinner(f"Parsing logs for {len(filtered_runs)} run(s)..."):
+            for run in filtered_runs:
+                run_path = run.get("path", "")
+                run_id = run.get("slurm_job_id", "Unknown")
+                if run_path and os.path.exists(run_path):
+                    node_metrics = load_node_metrics(run_path)
+                    # Add run_id to each node for identification in multi-run comparisons
+                    for node_data in node_metrics:
+                        node_data["run_id"] = run_id
+                    all_node_metrics.extend(node_metrics)
 
         if not all_node_metrics:
             st.warning("No log files (.err) found for the selected runs.")

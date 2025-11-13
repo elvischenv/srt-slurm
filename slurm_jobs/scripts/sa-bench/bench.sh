@@ -16,7 +16,7 @@ decode_gpus=$4
 total_gpus=$((prefill_gpus+decode_gpus))
 
 source /scripts/benchmark_utils.sh
-work_dir="/scripts/vllm/"
+work_dir="/scripts/sa-bench/"
 cd $work_dir
 
 chosen_isl=$5
@@ -32,6 +32,19 @@ wait_for_model_check_interval=5 # check interval -> 5s
 wait_for_model_report_interval=60 # wait_for_model report interval -> 60s
 
 wait_for_model $head_node $head_port $n_prefill $n_decode $wait_for_model_check_interval $wait_for_model_timeout $wait_for_model_report_interval
+
+# run a quick curl request against the model to do an accuracy spot check
+curl http://${head_node}:${head_port}/v1/chat/completions   -H "Content-Type: application/json"   -d '{
+    "model": "${model_name}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "is it possible to capture a cuda graph and move it to a new gpu?"
+      }
+    ],
+    "stream": false,
+    "max_tokens": 500
+  }'
 
 set -e
 # Warmup the model with a sweep of concurrencies
@@ -65,7 +78,7 @@ do
 done
 set +e
 
-result_dir="/logs/vllm_isl_${chosen_isl}_osl_${chosen_osl}"
+result_dir="/logs/sa-bench_isl_${chosen_isl}_osl_${chosen_osl}"
 mkdir -p $result_dir
 
 set -e

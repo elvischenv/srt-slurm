@@ -110,9 +110,9 @@ if [ "$mode" = "prefill" ]; then
         --disable-chunked-prefix-cache \
         --attention-backend trtllm_mla \
         --kv-cache-dtype fp8_e4m3 \
-        --tp-size "$TOTAL_GPUS" \
-        --dp-size "$TOTAL_GPUS" \
-        --ep-size "$TOTAL_GPUS" \
+        --tp-size "$((TOTAL_GPUS - 2))" \
+        --dp-size "$((TOTAL_GPUS - 2))" \
+        --ep-size "$((TOTAL_GPUS - 2))" \
         --enable-dp-attention \
         --moe-dense-tp-size 1 \
         --enable-dp-lm-head \

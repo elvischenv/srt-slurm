@@ -8,9 +8,6 @@ endpoint_url = "https://your-endpoint-url"
 # Your bucket name
 bucket = "your-benchmark-results"
 
-# Optional prefix for all keys (useful for organizing multiple projects in one bucket)
-prefix = "benchmark-results/"
-
 # Credentials are loaded from environment variables:
 # - AWS_ACCESS_KEY_ID
 # - AWS_SECRET_ACCESS_KEY

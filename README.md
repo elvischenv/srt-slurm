@@ -80,36 +80,33 @@ export AWS_SECRET_ACCESS_KEY="your-secret-key"
 **On Clusters (Push results):**
 
 ```bash
-# Push a single run after benchmark completes
-python slurm_jobs/scripts/sync_results.py push 3667_1P_1D_20251110_192145
+# Push all runs from a logs directory
+./push_after_benchmark.sh --log-dir /mnt/lustre01/users-public/slurm-shared/joblogs
 
-# Push all local runs
-python slurm_jobs/scripts/sync_results.py push-all
-
-# Auto-push after benchmark (add to your benchmark scripts)
-./slurm_jobs/scripts/push_after_benchmark.sh 3667_1P_1D_20251110_192145
+# Push a single run
+./push_after_benchmark.sh 3667_1P_1D_20251110_192145
 ```
 
 **Locally (Pull results):**
 
+Just launch the dashboard - it automatically pulls missing runs on startup:
+
 ```bash
-# Pull a specific run
-python slurm_jobs/scripts/sync_results.py pull 3667_1P_1D_20251110_192145
-
-# Pull all missing runs
-python slurm_jobs/scripts/sync_results.py pull-missing
-
-# List available runs in cloud
-python slurm_jobs/scripts/sync_results.py list-remote
+./run_dashboard.sh
 ```
 
-**Dashboard (Auto-sync):**
+In the dashboard sidebar:
 
-The dashboard automatically syncs missing runs from cloud storage on startup. You can:
+- Auto-sync is enabled by default (pulls missing runs)
+- Use 🔄 button to manually sync anytime
+- See status messages (new runs downloaded, errors, etc.)
 
-- Toggle auto-sync with the "Auto-sync on load" checkbox in the sidebar
-- Manually trigger sync with the 🔄 button
-- View sync status (new runs downloaded, errors, etc.)
+Or pull manually:
+
+```bash
+python slurm_jobs/scripts/sync_results.py pull-missing
+python slurm_jobs/scripts/sync_results.py list-remote
+```
 
 ## What It Does
 

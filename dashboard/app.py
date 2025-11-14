@@ -254,38 +254,6 @@ def render_sidebar(logs_dir, runs):
         "show_frontier": show_frontier,
     }
     
-    st.sidebar.divider()
-    
-    # Cloud sync
-    st.sidebar.header("Cloud Sync")
-    auto_sync = st.sidebar.checkbox(
-        "☁️ Auto-sync on load",
-        value=False,
-        help="Automatically pull missing runs from cloud storage on startup",
-    )
-    
-    if st.sidebar.button("🔄 Sync Now", width="stretch"):
-        components.load_data.clear()
-        st.session_state["force_sync"] = True
-        st.rerun()
-    
-    # Perform sync if enabled
-    if auto_sync or st.session_state.get("force_sync", False):
-        st.session_state["force_sync"] = False
-        
-        with st.spinner("Syncing from cloud storage..."):
-            sync_performed, sync_count, error = components.sync_cloud_data(logs_dir)
-        
-        if sync_performed:
-            if error:
-                st.sidebar.error(f"Sync failed: {error}")
-            elif sync_count > 0:
-                st.sidebar.success(f"✓ Downloaded {sync_count} new run(s)")
-            else:
-                st.sidebar.info("✓ All runs up to date")
-        else:
-            st.sidebar.info("💡 Cloud sync not configured")
-    
     return filtered_runs, selected_runs, run_legend_labels, df, pareto_options
 
 
@@ -310,6 +278,40 @@ def main():
     if not os.path.exists(logs_dir):
         st.error(f"Directory not found: {logs_dir}")
         return
+    
+    # Cloud Sync Section (always available)
+    st.sidebar.divider()
+    st.sidebar.header("Cloud Sync")
+    auto_sync = st.sidebar.checkbox(
+        "☁️ Auto-sync on load",
+        value=False,
+        help="Automatically pull missing runs from cloud storage on startup",
+    )
+    
+    if st.sidebar.button("🔄 Sync Now", key="sync_now_main"):
+        components.load_data.clear()
+        st.session_state["force_sync"] = True
+        st.rerun()
+    
+    # Perform sync if enabled
+    if auto_sync or st.session_state.get("force_sync", False):
+        st.session_state["force_sync"] = False
+        
+        with st.spinner("Syncing from cloud storage..."):
+            sync_performed, sync_count, error = components.sync_cloud_data(logs_dir)
+        
+        if sync_performed:
+            if error:
+                st.sidebar.error(f"Sync failed: {error}")
+            elif sync_count > 0:
+                st.sidebar.success(f"✓ Downloaded {sync_count} new run(s)")
+                # Clear cache and reload to show new runs
+                components.load_data.clear()
+                st.rerun()
+            else:
+                st.sidebar.info("✓ All runs up to date")
+        else:
+            st.sidebar.info("💡 Cloud sync not configured")
     
     # Load data
     with st.spinner("Loading benchmark data..."):

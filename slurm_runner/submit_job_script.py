@@ -502,7 +502,7 @@ def main(input_args: list[str] | None = None):
             parsable_config = f"{parsable_config} 512"  # default
     elif benchmark_config["type"] == "mmlu":
         parsable_config = ""
-        # Parse gpqa-specific parameters
+        # Parse mmlu-specific parameters
         if "num-examples" in benchmark_config:
             assert benchmark_config["num-examples"].isnumeric()
             parsable_config = f"{parsable_config} {benchmark_config['num-examples']}"

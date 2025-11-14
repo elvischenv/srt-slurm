@@ -41,6 +41,76 @@ For more info on the submission script see [slurm_jobs/README.md](slurm_jobs/REA
 
 The dashboard will open at http://localhost:8501 and scan the current directory for benchmark runs. You can specify your own log directory in the UI itself.
 
+## Cloud Storage Sync
+
+Store benchmark results in cloud storage (S3-compatible) and access them from anywhere.
+
+### Setup
+
+1. **Install dependencies:**
+
+```bash
+pip install boto3
+```
+
+2. **Create cloud config:**
+
+```bash
+cp cloud_config.toml.example cloud_config.toml
+```
+
+3. **Edit `cloud_config.toml`:**
+
+```toml
+[cloud]
+endpoint_url = "https://your-s3-endpoint"
+bucket = "your-bucket-name"
+prefix = "benchmark-results/"
+```
+
+4. **Set credentials as environment variables:**
+
+```bash
+export AWS_ACCESS_KEY_ID="your-access-key"
+export AWS_SECRET_ACCESS_KEY="your-secret-key"
+```
+
+### Usage
+
+**On Clusters (Push results):**
+
+```bash
+# Push a single run after benchmark completes
+python slurm_jobs/scripts/sync_results.py push 3667_1P_1D_20251110_192145
+
+# Push all local runs
+python slurm_jobs/scripts/sync_results.py push-all
+
+# Auto-push after benchmark (add to your benchmark scripts)
+./slurm_jobs/scripts/push_after_benchmark.sh 3667_1P_1D_20251110_192145
+```
+
+**Locally (Pull results):**
+
+```bash
+# Pull a specific run
+python slurm_jobs/scripts/sync_results.py pull 3667_1P_1D_20251110_192145
+
+# Pull all missing runs
+python slurm_jobs/scripts/sync_results.py pull-missing
+
+# List available runs in cloud
+python slurm_jobs/scripts/sync_results.py list-remote
+```
+
+**Dashboard (Auto-sync):**
+
+The dashboard automatically syncs missing runs from cloud storage on startup. You can:
+
+- Toggle auto-sync with the "Auto-sync on load" checkbox in the sidebar
+- Manually trigger sync with the 🔄 button
+- View sync status (new runs downloaded, errors, etc.)
+
 ## What It Does
 
 **Pareto Analysis** - Compare throughput efficiency (TPS/GPU) vs per-user throughput (TPS/User) across configurations

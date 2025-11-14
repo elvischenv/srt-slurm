@@ -15,6 +15,7 @@ from srtslurm import (
     format_config_for_display,
     parse_command_line_from_err,
 )
+from srtslurm.cloud_sync import create_sync_manager_from_config
 from srtslurm.config_reader import (
     get_all_configs,
     get_command_line_args,
@@ -79,6 +80,26 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+
+def sync_cloud_data(logs_dir):
+    """Sync missing runs from cloud storage if configured.
+    
+    Returns:
+        Tuple of (sync_performed: bool, sync_count: int, error_message: str or None)
+    """
+    try:
+        sync_manager = create_sync_manager_from_config("cloud_config.toml")
+        if sync_manager is None:
+            # No cloud config, skip sync
+            return False, 0, None
+        
+        # Sync missing runs
+        count = sync_manager.sync_missing_runs(logs_dir)
+        return True, count, None
+    except Exception as e:
+        logger.error(f"Failed to sync cloud data: {e}")
+        return True, 0, str(e)
 
 
 @st.cache_data
@@ -492,6 +513,38 @@ def main():
     if not os.path.exists(logs_dir):
         st.error(f"Directory not found: {logs_dir}")
         return
+
+    # Cloud sync status in sidebar
+    with st.sidebar:
+        st.divider()
+        st.subheader("☁️ Cloud Sync")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            auto_sync = st.checkbox("Auto-sync on load", value=True, help="Automatically pull missing runs from cloud storage")
+        with col2:
+            if st.button("🔄", help="Manually sync now"):
+                # Clear cache and force sync
+                load_data.clear()
+                st.session_state["force_sync"] = True
+                st.rerun()
+        
+        # Perform sync if enabled
+        if auto_sync or st.session_state.get("force_sync", False):
+            st.session_state["force_sync"] = False
+            
+            with st.spinner("Syncing from cloud storage..."):
+                sync_performed, sync_count, error = sync_cloud_data(logs_dir)
+                
+            if sync_performed:
+                if error:
+                    st.error(f"Sync failed: {error}")
+                elif sync_count > 0:
+                    st.success(f"Downloaded {sync_count} new run(s)")
+                else:
+                    st.info("All runs up to date")
+        
+        st.divider()
 
     # Load data
     with st.spinner("Loading benchmark data..."):

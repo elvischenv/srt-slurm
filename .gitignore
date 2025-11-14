@@ -29,5 +29,8 @@ uv.lock
 .DS_Store
 Thumbs.db
 
+# Cloud config (contains credentials)
+cloud_config.toml
+
 configs/
 .ruff_cache/

@@ -319,17 +319,20 @@ def _parse_command_line_args(args: list[str] | None = None) -> argparse.Namespac
 
 def _validate_args(args: argparse.Namespace) -> None:
     """Validate arguments and ensure aggregated and disaggregated args are mutually exclusive."""
+    # Config file is in repo root (parent of slurm_runner/)
+    config_path = str(pathlib.Path(__file__).parent.parent / "srtslurm.yaml")
+    
     # Validate cluster settings with config file fallback
     try:
         args.account, args.partition, args.network_interface = validate_cluster_settings(
-            args.account, args.partition, args.network_interface
+            args.account, args.partition, args.network_interface, config_path
         )
     except ValueError as e:
         raise ValueError(f"Cluster configuration error: {e}")
     
     # Apply time limit default
     if args.time_limit is None:
-        args.time_limit = get_cluster_setting("time_limit", None) or "04:00:00"
+        args.time_limit = get_cluster_setting("time_limit", None, config_path) or "04:00:00"
     
     has_disagg_args = any(
         [
@@ -424,7 +427,9 @@ def main(input_args: list[str] | None = None):
     # Apply container-image from config if not provided
     if args.container_image is None:
         from cluster_config import get_cluster_setting
-        args.container_image = get_cluster_setting("container_image", None)
+        # Config file is in repo root (parent of slurm_runner/)
+        config_path = str(pathlib.Path(__file__).parent.parent / "srtslurm.yaml")
+        args.container_image = get_cluster_setting("container_image", None, config_path)
         if args.container_image is None:
             raise ValueError(
                 "Container image must be specified via --container-image or cluster.container_image in srtslurm.yaml"

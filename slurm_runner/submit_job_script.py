@@ -508,6 +508,12 @@ def main(input_args: list[str] | None = None):
             parsable_config = f"{parsable_config} {benchmark_config['num-threads']}"
         else:
             parsable_config = f"{parsable_config} 512"  # default
+
+        if "thinking-mode" in benchmark_config:
+            assert benchmark_config["thinking-mode"] in ["deepseek-r1", "deepseek-v3"]
+            parsable_config = f"{parsable_config} {benchmark_config['thinking-mode']}"
+        else:
+            parsable_config = f"{parsable_config} deepseek-r1"  # default
     elif benchmark_config["type"] == "mmlu":
         parsable_config = ""
         # Parse mmlu-specific parameters

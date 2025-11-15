@@ -126,7 +126,7 @@ Set `type=manual` to skip automated benchmarking.
 Also specify accuracy benchmark config with `--benchmark`:
 
 ```bash
---benchmark "type=gpqa; num-examples=198; max-tokens=8192; repeat=8; num-threads=512"
+--benchmark "type=gpqa; num-examples=198; max-tokens=32768; repeat=8; num-threads=512; --thinking-mode=deepseek-r1"
 ```
 - `type`: Benchmark type (`gpqa`, `mmlu`)
 - `num-examples`: Number of examples for testing
@@ -134,7 +134,9 @@ Also specify accuracy benchmark config with `--benchmark`:
 - `repeat`: Number of turns for benchmarking
 - `num-threads`: Concurrency of running test
 
-In the bottom it will call `sglang.test.run_eval` for testing gpqa/mmlu datasets.
+In the bottom it will call `sglang.test.run_eval` for testing gpqa/mmlu datasets. 
+For accuracy test, the`--context-length` argument for sglang launching needs to be changed to a larger value (e.g. 40000) which covers the `max-tokens`. If running correctly, the deepseek r1 model should show an accuracy of about 0.80 on gpqa dataset.
+
 In the future other benchmark tools like lm_eval or nemo_skills can be added.
 
 ## Advanced

@@ -17,8 +17,9 @@ num_examples=${5:-198}  # Default: 198
 max_tokens=${6:-512}    # Default: 512
 repeat=${7:-8}          # Default: 8
 num_threads=${8:-512}   # Default: 512
+thinking_mode=${9:-deepseek-r1} # Default: deepseek-r1
 
-echo "GPQA Benchmark Config: num_examples=${num_examples}; max_tokens=${max_tokens}; repeat=${repeat}; num_threads=${num_threads}"
+echo "GPQA Benchmark Config: num_examples=${num_examples}; max_tokens=${max_tokens}; repeat=${repeat}; num_threads=${num_threads}; thinking-mode=${thinking_mode}"
 
 # Source utilities for wait_for_model
 source /scripts/benchmark_utils.sh
@@ -48,7 +49,8 @@ python3 -m sglang.test.run_eval \
     --num-examples ${num_examples} \
     --max-tokens ${max_tokens} \
     --repeat ${repeat} \
-    --num-threads ${num_threads}
+    --num-threads ${num_threads} \
+    --thinking-mode ${thinking_mode}
 
 # Copy the result file from /tmp to our logs directory
 # The result file is named gpqa_{model_name}.json

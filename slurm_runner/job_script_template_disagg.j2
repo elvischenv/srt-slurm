@@ -200,6 +200,12 @@ WORKER_ARGS="$WORKER_ARGS --use_init_locations"
 WORKER_ARGS="$WORKER_ARGS --use-dynamo-whls"
 {% endraw %}
 {% endif %}
+{% if sglang_torch_profiler %}
+{% raw %}
+# Enable torch profiling mode
+WORKER_ARGS="$WORKER_ARGS --sglang-torch-profiler"
+{% endraw %}
+{% endif %}
 {% raw %}
 
 {% endraw %}
@@ -340,9 +346,45 @@ srun --nodes=1 --ntasks=1 $ENROOT_ARGS --jobid $SLURM_JOB_ID -w ${nodes[0]} --ou
 {% endraw %}
 {% endif %}
 
+{% if sglang_torch_profiler %}
 {% raw %}
+# Torch profiling mode: run profiling on prefill and decode workers separately
+echo "Starting torch profiling..."
+
+# Get leader nodes for first prefill and decode workers
+PREFILL_LEADER_NODE=${nodes[${prefill_leaders[0]}]}
+DECODE_LEADER_NODE=${nodes[${decode_leaders[0]}]}
+
+echo "Prefill profiling will run on: $PREFILL_LEADER_NODE"
+echo "Decode profiling will run on: $DECODE_LEADER_NODE"
+
+# Run prefill profiling on first prefill worker's leader node
+srun --nodes=1 --ntasks=1 $ENROOT_ARGS --jobid $SLURM_JOB_ID -w $PREFILL_LEADER_NODE \
+    --output=${LOG_DIR}/profile_prefill.out --error=${LOG_DIR}/profile_prefill.err --overlap \
+    bash -c "PROFILING_MODE=prefill SGLANG_TORCH_PROFILER_DIR=/logs/profiles /scripts/profile.sh $PREFILL_WORKERS $DECODE_WORKERS $PREFILL_GPUS $DECODE_GPUS $TOTAL_GPUS" &
+
+# Run decode profiling on first decode worker's leader node
+srun --nodes=1 --ntasks=1 $ENROOT_ARGS --jobid $SLURM_JOB_ID -w $DECODE_LEADER_NODE \
+    --output=${LOG_DIR}/profile_decode.out --error=${LOG_DIR}/profile_decode.err --overlap \
+    bash -c "PROFILING_MODE=decode SGLANG_TORCH_PROFILER_DIR=/logs/profiles /scripts/profile.sh $PREFILL_WORKERS $DECODE_WORKERS $PREFILL_GPUS $DECODE_GPUS $TOTAL_GPUS" &
+{% endraw %}
+{% endif %}
+
+{% if sglang_torch_profiler %}
+{% raw %}
+# Wait for all profiling scripts to complete (both prefill and decode)
+echo "Waiting for all profiling scripts to complete..."
+wait
+exit_code=$?
+echo "All profiling scripts finished at $(date) with exit code ${exit_code}"
+exit $exit_code
+{% endraw %}
+{% else %}
+{% raw %}
+# Wait for first task (benchmark) to complete
 wait -n
 first_exit_code=$?
 echo "Script finished at $(date) with exit code ${first_exit_code}"
 exit $first_exit_code
 {% endraw %}
+{% endif %}

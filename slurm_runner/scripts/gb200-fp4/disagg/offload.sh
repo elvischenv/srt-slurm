@@ -31,6 +31,15 @@ if [ "$mode" != "prefill" ] && [ "$mode" != "decode" ]; then
 fi
 
 echo "Mode: $mode"
+
+# Determine which Python module to use based on USE_SGLANG_LAUNCH_SERVER
+if [[ "${USE_SGLANG_LAUNCH_SERVER,,}" == "true" ]]; then
+    PYTHON_MODULE="sglang.launch_server"
+    echo "Command: sglang.launch_server (profiling mode)"
+else
+    PYTHON_MODULE="dynamo.sglang"
+    echo "Command: dynamo.sglang"
+fi
 echo "Command: dynamo"
 
 # Check if required environment variables are set
@@ -76,6 +85,13 @@ if [ "$mode" = "prefill" ]; then
     if [[ "${USE_INIT_LOCATIONS,,}" == "true" ]]; then command_suffix=" "; fi
     if [[ -n "${DUMP_CONFIG_PATH}" ]]; then command_suffix="${command_suffix} --dump-config-to ${DUMP_CONFIG_PATH}"; fi
 
+    # Only add --disaggregation-mode if not in profiling mode
+    if [[ "${USE_SGLANG_LAUNCH_SERVER,,}" != "true" ]]; then
+        DISAGG_MODE_FLAG="--disaggregation-mode prefill"
+    else
+        DISAGG_MODE_FLAG=""
+    fi
+
     # we have to install pre-release cutedsl for a integer overflow fix
     python3 -m pip install --no-cache-dir --upgrade --pre nvidia-cutlass-dsl
 
@@ -99,8 +115,8 @@ if [ "$mode" = "prefill" ]; then
     SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK=1 \
     PYTHONUNBUFFERED=1 \
     numactl --cpunodebind=0 --membind=0 \
-    python3 -m dynamo.sglang \
-        --disaggregation-mode prefill \
+    python3 -m $PYTHON_MODULE \
+        $DISAGG_MODE_FLAG \
         --host 0.0.0.0 \
         --decode-log-interval 1000 \
         --max-running-requests 30000 \
@@ -153,6 +169,13 @@ elif [ "$mode" = "decode" ]; then
     if [[ "${USE_INIT_LOCATIONS,,}" == "true" ]]; then command_suffix=" "; fi
     if [[ -n "${DUMP_CONFIG_PATH}" ]]; then command_suffix="${command_suffix} --dump-config-to ${DUMP_CONFIG_PATH}"; fi
 
+    # Only add --disaggregation-mode if not in profiling mode
+    if [[ "${USE_SGLANG_LAUNCH_SERVER,,}" != "true" ]]; then
+        DISAGG_MODE_FLAG="--disaggregation-mode decode"
+    else
+        DISAGG_MODE_FLAG=""
+    fi
+
     # set your own cache variables here
     export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=1800
 
@@ -177,8 +200,8 @@ elif [ "$mode" = "decode" ]; then
     SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK=384 \
     SGLANG_CUTEDSL_MOE_NVFP4_DISPATCH=1 \
     SGLANG_FP4_GEMM_BACKEND=cutlass \
-    python3 -m dynamo.sglang \
-        --disaggregation-mode decode \
+    python3 -m $PYTHON_MODULE \
+        $DISAGG_MODE_FLAG \
         --host 0.0.0.0 \
         --decode-log-interval 1000 \
         --max-running-requests 18432 \

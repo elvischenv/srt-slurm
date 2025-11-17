@@ -233,6 +233,12 @@ def _parse_command_line_args(args: list[str] | None = None) -> argparse.Namespac
         help="Use dynamo wheels from config-dir and binaries from /configs/ for nats/etcd",
     )
 
+    parser.add_argument(
+        "--sglang-torch-profiler",
+        action="store_true",
+        help="Enable torch profiling mode: use sglang.launch_server and skip --disaggregation-mode",
+    )
+
     return parser.parse_args(args)
 
 
@@ -273,6 +279,8 @@ def setup_env_vars_for_gpu_script(
     use_init_locations: bool = True,
     dump_config_path: str | None = None,
     use_dynamo_whls: bool = False,
+    sglang_torch_profiler: bool = False,
+    worker_type: str = "aggregated",
 ):
     """Setup environment variables required by GPU scripts (gb200-fp8.sh)"""
     os.environ["HOST_IP_MACHINE"] = host_ip
@@ -282,6 +290,10 @@ def setup_env_vars_for_gpu_script(
     os.environ["TOTAL_NODES"] = str(total_nodes)
     os.environ["USE_INIT_LOCATIONS"] = str(use_init_locations)
     os.environ["USE_DYNAMO_WHLS"] = str(use_dynamo_whls)
+    os.environ["USE_SGLANG_LAUNCH_SERVER"] = str(sglang_torch_profiler)
+    if sglang_torch_profiler:
+        # Set profiler directory with worker-type-specific subdirectory
+        os.environ["SGLANG_TORCH_PROFILER_DIR"] = f"/logs/profiles/{worker_type}"
     if dump_config_path:
         os.environ["DUMP_CONFIG_PATH"] = dump_config_path
     else:
@@ -294,6 +306,9 @@ def setup_env_vars_for_gpu_script(
     logging.info(f"Set TOTAL_NODES: {total_nodes}")
     logging.info(f"Set USE_INIT_LOCATIONS: {use_init_locations}")
     logging.info(f"Set USE_DYNAMO_WHLS: {use_dynamo_whls}")
+    logging.info(f"Set USE_SGLANG_LAUNCH_SERVER: {sglang_torch_profiler}")
+    if sglang_torch_profiler:
+        logging.info(f"Set SGLANG_TORCH_PROFILER_DIR: /logs/profiles/{worker_type}")
     if dump_config_path:
         logging.info(f"Set DUMP_CONFIG_PATH: {dump_config_path}")
 
@@ -408,6 +423,7 @@ def setup_prefill_worker(
     use_init_locations: bool = True,
     dump_config_path: str | None = None,
     use_dynamo_whls: bool = False,
+    sglang_torch_profiler: bool = False,
 ) -> int:
     """
     Setup the prefill worker.
@@ -430,6 +446,8 @@ def setup_prefill_worker(
         use_init_locations=use_init_locations,
         dump_config_path=dump_config_path,
         use_dynamo_whls=use_dynamo_whls,
+        sglang_torch_profiler=sglang_torch_profiler,
+        worker_type="prefill",
     )
 
     # Use appropriate GPU script instead of generating command directly
@@ -449,6 +467,7 @@ def setup_decode_worker(
     use_init_locations: bool = True,
     dump_config_path: str | None = None,
     use_dynamo_whls: bool = False,
+    sglang_torch_profiler: bool = False,
 ) -> int:
     """
     Setup the decode worker.
@@ -468,6 +487,8 @@ def setup_decode_worker(
         use_init_locations=use_init_locations,
         dump_config_path=dump_config_path,
         use_dynamo_whls=use_dynamo_whls,
+        sglang_torch_profiler=sglang_torch_profiler,
+        worker_type="decode",
     )
 
     # Use appropriate GPU script instead of generating command directly
@@ -487,6 +508,7 @@ def setup_aggregated_worker(
     multiple_frontends_enabled: bool = False,
     dump_config_path: str | None = None,
     use_dynamo_whls: bool = False,
+    sglang_torch_profiler: bool = False,
 ) -> int:
     """
     Setup the aggregated worker.
@@ -512,6 +534,8 @@ def setup_aggregated_worker(
         use_init_locations=False,
         dump_config_path=dump_config_path,
         use_dynamo_whls=use_dynamo_whls,
+        sglang_torch_profiler=sglang_torch_profiler,
+        worker_type="aggregated",
     )
 
     # Use appropriate aggregated GPU script
@@ -571,6 +595,7 @@ def main(input_args: list[str] | None = None):
             args.use_init_locations,
             args.dump_config_path,
             args.use_dynamo_whls,
+            args.sglang_torch_profiler,
         )
     elif args.worker_type == "decode":
         setup_decode_worker(
@@ -585,6 +610,7 @@ def main(input_args: list[str] | None = None):
             args.use_init_locations,
             args.dump_config_path,
             args.use_dynamo_whls,
+            args.sglang_torch_profiler,
         )
     elif args.worker_type == "aggregated":
         setup_aggregated_worker(
@@ -599,6 +625,7 @@ def main(input_args: list[str] | None = None):
             args.multiple_frontends_enabled,
             args.dump_config_path,
             args.use_dynamo_whls,
+            args.sglang_torch_profiler,
         )
 
     logging.info(f"{args.worker_type.capitalize()} worker setup complete")

@@ -271,6 +271,12 @@ def _parse_command_line_args(args: list[str] | None = None) -> argparse.Namespac
     )
 
     parser.add_argument(
+        "--sglang-torch-profiler",
+        action="store_true",
+        help="Enable torch profiling mode using sglang.launch_server (mutually exclusive with --benchmark)",
+    )
+
+    parser.add_argument(
         "--extra-slurm-args",
         action="append",
         default=[],
@@ -304,9 +310,36 @@ def _parse_command_line_args(args: list[str] | None = None) -> argparse.Namespac
 
 def _validate_args(args: argparse.Namespace) -> None:
     """Validate arguments and ensure aggregated and disaggregated args are mutually exclusive."""
+    # Validate profiling mode constraints
+    if args.sglang_torch_profiler:
+        # disable config dump because we use stock sglang command
+        args.enable_config_dump = False
+        if args.benchmark:
+            raise ValueError(
+                "Cannot specify both --sglang-torch-profiler and --benchmark. "
+                "Profiling mode is mutually exclusive with benchmarking."
+            )
+
+        # Check for multiple workers in profiling mode
+        if hasattr(args, 'agg_workers') and args.agg_workers and args.agg_workers > 1:
+            raise ValueError(
+                "Profiling mode requires single worker only. "
+                f"Got --agg-workers={args.agg_workers}"
+            )
+        if hasattr(args, 'prefill_workers') and args.prefill_workers and args.prefill_workers > 1:
+            raise ValueError(
+                "Profiling mode requires single worker only. "
+                f"Got --prefill-workers={args.prefill_workers}"
+            )
+        if hasattr(args, 'decode_workers') and args.decode_workers and args.decode_workers > 1:
+            raise ValueError(
+                "Profiling mode requires single worker only. "
+                f"Got --decode-workers={args.decode_workers}"
+            )
+
     # Config file is in repo root (parent of slurm_runner/)
     config_path = str(pathlib.Path(__file__).parent.parent / "srtslurm.yaml")
-    
+
     # Validate cluster settings with config file fallback
     try:
         args.account, args.partition, args.network_interface = validate_cluster_settings(
@@ -466,7 +499,11 @@ def main(input_args: list[str] | None = None):
     # validate benchmark configs
     if benchmark_config == {} or benchmark_config["type"] == "manual":
         parsable_config = ""
-        benchmark_config["type"] = "manual"
+        # Set type based on whether profiling is enabled
+        if args.sglang_torch_profiler:
+            benchmark_config["type"] = "torch-profiler"
+        else:
+            benchmark_config["type"] = "manual"
     elif benchmark_config["type"] == "sa-bench":
         parsable_config = ""
         need_keys = ["isl", "osl", "concurrencies", "req-rate"]
@@ -571,6 +608,15 @@ def main(input_args: list[str] | None = None):
     else:
         template_path = "job_script_template_disagg.j2"
 
+    # For profiling, always enable multiple frontends infrastructure (nginx + 1 frontend with NATS/ETCD)
+    # WIP: Only primary frontend is launched for simplicity. Additional frontends disabled.
+    if args.sglang_torch_profiler:
+        enable_multiple_frontends_final = True
+        num_additional_frontends_final = 0  # Only primary frontend + NATS/ETCD
+    else:
+        enable_multiple_frontends_final = args.enable_multiple_frontends
+        num_additional_frontends_final = args.num_additional_frontends
+
     template_vars = {
         "job_name": args.job_name,
         "total_nodes": total_nodes,
@@ -591,16 +637,17 @@ def main(input_args: list[str] | None = None):
         "gpu_type": args.gpu_type,
         "script_variant": args.script_variant,
         "partition": args.partition,
-        "enable_multiple_frontends": args.enable_multiple_frontends,
-        "num_additional_frontends": args.num_additional_frontends,
+        "enable_multiple_frontends": enable_multiple_frontends_final,
+        "num_additional_frontends": num_additional_frontends_final,
         "use_init_location": args.use_init_location,
-        "do_benchmark": benchmark_config["type"] != "manual",
+        "do_benchmark": benchmark_config["type"] not in ["manual", "torch-profiler"],
         "benchmark_type": benchmark_config["type"],
         "benchmark_arg": parsable_config,
         "timestamp": timestamp,
         "enable_config_dump": args.enable_config_dump,
         "use_dynamo_whls": True,  # Always true when config-dir is set
         "log_dir_prefix": log_dir_prefix,
+        "sglang_torch_profiler": args.sglang_torch_profiler,
     }
 
     # Create temporary file for sbatch script
@@ -609,51 +656,58 @@ def main(input_args: list[str] | None = None):
     temp_file.close()
 
     try:
+        submitted_job_ids = []
+
+        # Single job submission for all modes (benchmarking and profiling)
         _, rendered_script = generate_job_script(
             template_path, temp_path, **template_vars
         )
 
-        submitted_job_ids = []
         job_id = submit_job(temp_path, args.extra_slurm_args)
         submitted_job_ids.append(job_id)
+        log_dir_already_created = False
 
         # Create log directory with new naming format IMMEDIATELY after submission
         # SLURM will write log.out/log.err to this directory when job starts
-        if is_aggregated:
-            log_dir_name = f"{job_id}_{agg_workers}A_{timestamp}"
-        else:
-            log_dir_name = f"{job_id}_{prefill_workers}P_{decode_workers}D_{timestamp}"
-        
-        # Determine base log directory (default: repo root/logs)
-        if args.log_dir:
-            base_log_dir = pathlib.Path(args.log_dir)
-            if not base_log_dir.is_absolute():
-                # Relative to slurm_runner directory
-                base_log_dir = pathlib.Path(__file__).parent / base_log_dir
-        else:
-            # Default: repo root/logs (parent directory of slurm_runner/ + logs)
-            base_log_dir = pathlib.Path(__file__).parent.parent / "logs"
-        
-        log_dir_path = base_log_dir / log_dir_name
-        os.makedirs(log_dir_path, exist_ok=True)
+        # Skip if already created for disaggregated profiling
+        if not log_dir_already_created:
+            if args.sglang_torch_profiler and is_aggregated:
+                log_dir_name = f"{job_id}_{agg_workers}A_profile_{timestamp}"
+            elif is_aggregated:
+                log_dir_name = f"{job_id}_{agg_workers}A_{timestamp}"
+            else:
+                log_dir_name = f"{job_id}_{prefill_workers}P_{decode_workers}D_{timestamp}"
 
-        # Save rendered sbatch script
-        sbatch_script_path = os.path.join(log_dir_path, "sbatch_script.sh")
-        with open(sbatch_script_path, "w") as f:
-            f.write(rendered_script)
-        logging.info(f"Saved rendered sbatch script to {sbatch_script_path}")
+            # Determine base log directory (default: repo root/logs)
+            if args.log_dir:
+                base_log_dir = pathlib.Path(args.log_dir)
+                if not base_log_dir.is_absolute():
+                    # Relative to slurm_runner directory
+                    base_log_dir = pathlib.Path(__file__).parent / base_log_dir
+            else:
+                # Default: repo root/logs (parent directory of slurm_runner/ + logs)
+                base_log_dir = pathlib.Path(__file__).parent.parent / "logs"
 
-        # Create and save job metadata
-        metadata = create_job_metadata(
-            job_id=job_id,
-            timestamp=timestamp,
-            args=args,
-            benchmark_config=benchmark_config,
-        )
-        metadata_path = os.path.join(log_dir_path, f"{job_id}.json")
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2)
-        logging.info(f"Saved job metadata to {metadata_path}")
+            log_dir_path = base_log_dir / log_dir_name
+            os.makedirs(log_dir_path, exist_ok=True)
+
+            # Save rendered sbatch script
+            sbatch_script_path = os.path.join(log_dir_path, "sbatch_script.sh")
+            with open(sbatch_script_path, "w") as f:
+                f.write(rendered_script)
+            logging.info(f"Saved rendered sbatch script to {sbatch_script_path}")
+
+            # Create and save job metadata
+            metadata = create_job_metadata(
+                job_id=job_id,
+                timestamp=timestamp,
+                args=args,
+                benchmark_config=benchmark_config,
+            )
+            metadata_path = os.path.join(log_dir_path, f"{job_id}.json")
+            with open(metadata_path, "w") as f:
+                json.dump(metadata, f, indent=2)
+            logging.info(f"Saved job metadata to {metadata_path}")
 
         # retries logic
         if args.retries > 0:

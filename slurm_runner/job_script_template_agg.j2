@@ -184,6 +184,12 @@ WORKER_ARGS="$WORKER_ARGS --multiple-frontends-enabled"
 WORKER_ARGS="$WORKER_ARGS --use-dynamo-whls"
 {% endraw %}
 {% endif %}
+{% if sglang_torch_profiler %}
+{% raw %}
+# Enable torch profiling mode
+WORKER_ARGS="$WORKER_ARGS --sglang-torch-profiler"
+{% endraw %}
+{% endif %}
 {% raw %}
 
 {% endraw %}
@@ -296,10 +302,40 @@ srun --nodes=1 --ntasks=1 $ENROOT_ARGS --jobid $SLURM_JOB_ID -w ${nodes[0]} --ou
 {% endraw %}
 {% endif %}
 
+{% if sglang_torch_profiler %}
 {% raw %}
+# Torch profiling mode for aggregated workers
+echo "Starting torch profiling on aggregated worker..."
+
+# Get leader node for first aggregated worker
+AGG_LEADER_NODE=${nodes[${agg_leaders[0]}]}
+
+echo "Aggregated profiling will run on: $AGG_LEADER_NODE"
+
+# Run profiling on first aggregated worker's leader node
+# Use "decode" mode for aggregated since it profiles the full generation pipeline
+srun --nodes=1 --ntasks=1 $ENROOT_ARGS --jobid $SLURM_JOB_ID -w $AGG_LEADER_NODE \
+    --output=${LOG_DIR}/profile_aggregated.out --error=${LOG_DIR}/profile_aggregated.err --overlap \
+    bash -c "PROFILING_MODE=decode SGLANG_TORCH_PROFILER_DIR=/logs/profiles /scripts/profile.sh 0 $AGG_WORKERS 0 $AGG_GPUS $TOTAL_GPUS" &
+{% endraw %}
+{% endif %}
+
+{% if sglang_torch_profiler %}
+{% raw %}
+# Wait for profiling script to complete
+echo "Waiting for profiling script to complete..."
+wait
+exit_code=$?
+echo "Profiling script finished at $(date) with exit code ${exit_code}"
+exit $exit_code
+{% endraw %}
+{% else %}
+{% raw %}
+# Wait for first task to complete
 wait -n
 first_exit_code=$?
 echo "Script finished at $(date) with exit code ${first_exit_code}"
 exit $first_exit_code
 {% endraw %}
+{% endif %}
 

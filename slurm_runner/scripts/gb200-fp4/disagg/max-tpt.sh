@@ -31,7 +31,15 @@ if [ "$mode" != "prefill" ] && [ "$mode" != "decode" ]; then
 fi
 
 echo "Mode: $mode"
-echo "Command: dynamo"
+
+# Determine which Python module to use based on USE_SGLANG_LAUNCH_SERVER
+if [[ "${USE_SGLANG_LAUNCH_SERVER,,}" == "true" ]]; then
+    PYTHON_MODULE="sglang.launch_server"
+    echo "Command: sglang.launch_server (profiling mode)"
+else
+    PYTHON_MODULE="dynamo.sglang"
+    echo "Command: dynamo.sglang"
+fi
 
 # Check if required environment variables are set
 if [ -z "$HOST_IP_MACHINE" ]; then
@@ -97,7 +105,7 @@ if [ "$mode" = "prefill" ]; then
     SGLANG_USE_MESSAGE_QUEUE_BROADCASTER=0 \
     SGLANG_DISABLE_TP_MEMORY_INBALANCE_CHECK=1 \
     PYTHONUNBUFFERED=1 \
-    python3 -m dynamo.sglang \
+    python3 -m $PYTHON_MODULE \
         --served-model-name deepseek-ai/DeepSeek-R1 \
         --model-path /model/ \
         --disaggregation-mode prefill \
@@ -174,7 +182,7 @@ elif [ "$mode" = "decode" ]; then
     SGLANG_FLASHINFER_FP4_GEMM_BACKEND=cutlass \
     DYN_SKIP_SGLANG_LOG_FORMATTING=1 \
     PYTHONUNBUFFERED=1 \
-    python3 -m dynamo.sglang \
+    python3 -m $PYTHON_MODULE \
         --served-model-name deepseek-ai/DeepSeek-R1 \
         --model-path /model/ \
         --trust-remote-code \

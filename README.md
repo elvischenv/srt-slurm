@@ -10,9 +10,13 @@ Benchmarking toolkit for Dynamo and SGLang on SLURM clusters with interactive an
 make setup
 ```
 
-This downloads dependencies (nats, etcd, dynamo wheels) and creates `srtslurm.yaml` with your cluster settings.
+This downloads dependencies (nats, etcd, dynamo wheels) and creates `srtslurm.yaml` with your cluster settings and stores them in a folder called `configs`. This is automatically mounted to the container when you submit a job and all pieces are accessible via the `/config` mount.
 
-### 2. Run Benchmarks
+### 2. Run E2E Benchmark with SemiAnalysis Benchmarking Script
+
+## Example: Run FP4 Disagg with the `max-tpt.sh` script
+
+In this example we submit a job with 1 prefill worker (taking up 1 node so 4 GPUs) and 1 decode worker (taking up 12 nodes so 48 GPUs) and run the `max-tpt.sh` script (which you can find in `scripts/gb200-fp4/disagg/max-tpt.sh`). After the model is loaded, we will automatically run the benchmarking script.
 
 ```bash
 cd slurm_runner

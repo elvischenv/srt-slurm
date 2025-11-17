@@ -91,6 +91,9 @@ WORKER_ARGS="$WORKER_ARGS --use-dynamo-whls"
 {% endif %}
 {% raw %}
 
+# Profiling mode: use sglang.launch_server instead of dynamo.sglang
+WORKER_ARGS="$WORKER_ARGS --use-sglang-launch-server"
+
 # Launch prefill workers
 for worker_idx in $(seq 0 $((PREFILL_WORKERS - 1))); do
     leader_idx=${prefill_leaders[$worker_idx]}
@@ -107,6 +110,7 @@ for worker_idx in $(seq 0 $((PREFILL_WORKERS - 1))); do
         local_rank=$node_idx
 
         echo "Launching prefill worker $worker_idx, node $global_node_idx (local_rank $local_rank): $node"
+        # No config dump during profiling
         cmd="srun --overlap $ENROOT_ARGS --nodes=1 --ntasks=1 --nodelist=$node --output=${LOG_DIR}/${node}_prefill_w${worker_idx}.out --error=${LOG_DIR}/${node}_prefill_w${worker_idx}.err python /scripts/worker_setup.py --leader_ip ${LEADER_IP} --worker_idx ${worker_idx} --local_rank ${local_rank} --nodes_per_worker ${PREFILL_NODES_PER_WORKER} --worker_type prefill --disaggregation-mode prefill --gpu_utilization_log /logs/${node}_prefill_w${worker_idx}_gpu_utilization.log ${WORKER_ARGS}"
         echo "$cmd"
         $cmd &

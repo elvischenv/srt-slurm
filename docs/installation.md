@@ -22,7 +22,7 @@ pip install -e .
 # user
 sacctmgr -nP show assoc where user=$(whoami) format=account
 # partition
-sacctmgr show partition-name=batch format=account,partition -n
+sinfo
 ```
 
 ## Run Setup

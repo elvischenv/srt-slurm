@@ -165,9 +165,9 @@ backend:
       enable-dp-attention: true
 
       # Parallelism
-      tp-size: 32
-      dp-size: 32
-      ep-size: 32
+      tp-size: 48
+      dp-size: 48
+      ep-size: 48
 
 benchmark:
   type: "sa-bench"

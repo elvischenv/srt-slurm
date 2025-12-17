@@ -100,14 +100,14 @@ def setup_prefill_worker(
             if not wait_for_etcd(f"http://{master_ip}:{ETCD_CLIENT_PORT}"):
                 raise RuntimeError("Failed to connect to etcd")
 
-    # Install dynamo from PyPI
-    install_dynamo_wheels(gpu_type)
+        # Install dynamo from PyPI (only needed when not using sglang router)
+        install_dynamo_wheels(gpu_type)
 
     # Run custom setup script if provided
     _run_setup_script(setup_script)
 
-    # Start frontend AFTER installing dynamo (traditional mode only)
-    if need_frontend:
+    # Start frontend AFTER installing dynamo (traditional mode only, not when using sglang router)
+    if need_frontend and not use_sglang_router:
         logging.info("Starting frontend in traditional mode (after dynamo installation)")
 
         # Open log files for frontend
@@ -135,6 +135,7 @@ def setup_prefill_worker(
         rank=local_rank,
         profiler=profiler,
         dump_config_path=dump_config_path,
+        use_sglang_router=use_sglang_router,
     )
     return run_command(cmd_to_run)
 
@@ -159,8 +160,8 @@ def setup_decode_worker(
         if not wait_for_etcd(f"http://{master_ip}:{ETCD_CLIENT_PORT}"):
             raise RuntimeError("Failed to connect to etcd")
 
-    # Install dynamo from PyPI
-    install_dynamo_wheels(gpu_type)
+        # Install dynamo from PyPI (only needed when not using sglang router)
+        install_dynamo_wheels(gpu_type)
 
     # Run custom setup script if provided
     _run_setup_script(setup_script)
@@ -179,6 +180,7 @@ def setup_decode_worker(
         rank=local_rank,
         profiler=profiler,
         dump_config_path=dump_config_path,
+        use_sglang_router=use_sglang_router,
     )
     return run_command(cmd_to_run)
 
@@ -211,14 +213,14 @@ def setup_aggregated_worker(
             if not wait_for_etcd(f"http://{master_ip}:{ETCD_CLIENT_PORT}"):
                 raise RuntimeError("Failed to connect to etcd")
 
-    # Install dynamo from PyPI
-    install_dynamo_wheels(gpu_type)
+        # Install dynamo from PyPI (only needed when not using sglang router)
+        install_dynamo_wheels(gpu_type)
 
     # Run custom setup script if provided
     _run_setup_script(setup_script)
 
-    # Start frontend AFTER installing dynamo (traditional mode only)
-    if need_frontend:
+    # Start frontend AFTER installing dynamo (traditional mode only, not when using sglang router)
+    if need_frontend and not use_sglang_router:
         logging.info("Starting frontend in traditional mode (after dynamo installation)")
 
         # Open log files for frontend
@@ -246,5 +248,6 @@ def setup_aggregated_worker(
         rank=local_rank,
         profiler=profiler,
         dump_config_path=dump_config_path,
+        use_sglang_router=use_sglang_router,
     )
     return run_command(cmd_to_run)

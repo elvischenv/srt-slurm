@@ -1,12 +1,16 @@
 # Profiling
 
-srtctl supports two profiling backends for performance analysis: **Torch Profiler** and **NVIDIA Nsight Systems (nsys)**. Profiling helps identify bottlenecks in prefill and decode operations.
+srtctl supports two profiling backends for performance analysis: **Torch Profiler** and **NVIDIA Nsight Systems (nsys)**.
 
 ## Quick Start
 
 Add a `profiling` section to your job YAML:
 
 ```yaml
+# must set benchmark type to "manual"
+benchmark:
+  type: "manual"
+
 profiling:
   type: "torch" # or "nsys"
   isl: 1024

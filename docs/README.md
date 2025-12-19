@@ -14,19 +14,6 @@ Running large language models across multiple GPUs and nodes requires orchestrat
 - **Parameter sweeps** - Run grid searches across configurations with a single command
 - **Profiling support** - Built-in torch/nsys profiling modes
 
-## Architecture Overview
-
-`srtctl` orchestrates distributed inference using SGLang workers in either **disaggregated** or **aggregated** mode.
-
-**Disaggregated Mode** separates prefill and decode into specialized workers:
-
-- Prefill workers handle the initial prompt processing
-- Decode workers handle token generation
-- Frontend distribution via nginx load balancer
-- Two routing options: [Dynamo frontends](installation.md) (default) or [SGLang Router](sglang-router.md)
-
-**Aggregated Mode** runs combined prefill+decode on each worker, simpler but potentially less efficient for high-throughput scenarios.
-
 ## How It Works
 
 When you run `srtctl apply -f config.yaml`, the tool:
@@ -51,8 +38,8 @@ Once allocated, workers launch inside containers, discover each other through ET
 ## Next Steps
 
 - [Installation](installation.md) - Set up `srtctl` and submit your first job
-- [SGLang Router](sglang-router.md) - Alternative to Dynamo for PD disaggregation
 - [Monitoring](monitoring.md) - Understanding job logs and debugging
 - [Parameter Sweeps](sweeps.md) - Run grid searches across configurations
 - [Profiling](profiling.md) - Performance analysis with torch/nsys
 - [Analyzing Results](analyzing.md) - Dashboard and visualization
+- [SGLang Router](sglang-router.md) - Alternative to Dynamo for PD disaggregation

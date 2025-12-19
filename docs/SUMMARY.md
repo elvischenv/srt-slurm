@@ -6,4 +6,5 @@
 - [Profiling](profiling.md)
 - [Monitoring](monitoring.md)
 - [Parameter Sweeps](sweeps.md)
-- [Analying](analyzing.md)
+- [Analyzing](analyzing.md)
+- [SLURM FAQ](slurm-faq.md)

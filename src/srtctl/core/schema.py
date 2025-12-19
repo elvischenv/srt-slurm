@@ -99,6 +99,7 @@ class BenchmarkType(str, Enum):
     SA_BENCH = "sa-bench"
     MMLU = "mmlu"
     GPQA = "gpqa"
+    LONGBENCHV2 = "longbenchv2"
 
 
 class ModelConfig(BaseModel):

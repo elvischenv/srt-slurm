@@ -8,23 +8,26 @@ Unified job submission interface for srtctl.
 This is the main entrypoint for submitting benchmarks via YAML configs.
 
 Usage:
-    srtctl config.yaml
-    srtctl config.yaml --dry-run
-    srtctl sweep.yaml --sweep
+    srtctl apply -f config.yaml
+    srtctl apply -f config.yaml --use-orchestrator  # Use new Python orchestrator
+    srtctl dry-run -f sweep.yaml --sweep
 """
 
 import argparse
 import json
 import logging
+import math
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import yaml
 from datetime import datetime
 from pathlib import Path
 
 # Import from srtctl modules
-from srtctl.core.config import load_config
+from srtctl.core.config import load_config, get_srtslurm_setting
 from srtctl.core.sweep import generate_sweep_configs
 from srtctl.core.backend import SGLangBackend
 
@@ -35,6 +38,195 @@ def setup_logging(level: int = logging.INFO) -> None:
         format="%(asctime)s | %(levelname)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+
+def calculate_required_nodes(config: dict) -> int:
+    """Calculate total number of nodes required based on resource allocation."""
+    resources = config.get("resources", {})
+
+    # Get node counts
+    prefill_nodes = resources.get("prefill_nodes", 0) or 0
+    decode_nodes = resources.get("decode_nodes", 0) or 0
+    agg_nodes = resources.get("agg_nodes", 0) or 0
+
+    total_nodes = prefill_nodes + decode_nodes + agg_nodes
+
+    if total_nodes == 0:
+        # Fallback: calculate from workers and GPUs
+        gpus_per_node = resources.get("gpus_per_node", 8)
+        prefill_workers = resources.get("prefill_workers", 0) or 0
+        decode_workers = resources.get("decode_workers", 0) or 0
+        agg_workers = resources.get("agg_workers", 0) or 0
+
+        # Assume each worker uses all GPUs on a node for now
+        total_nodes = prefill_workers + decode_workers + agg_workers
+
+    return max(total_nodes, 1)
+
+
+def generate_minimal_sbatch_script(
+    config: dict,
+    config_path: Path,
+    sglang_config_path: Path = None,
+) -> str:
+    """Generate minimal sbatch script that calls the Python orchestrator.
+
+    Args:
+        config: Validated job configuration dict
+        config_path: Path to the YAML config file
+        sglang_config_path: Optional path to sglang config
+
+    Returns:
+        Rendered sbatch script as string
+    """
+    from jinja2 import Environment, FileSystemLoader
+
+    # Find template directory
+    srtctl_root = get_srtslurm_setting("srtctl_root")
+    if srtctl_root:
+        template_dir = Path(srtctl_root) / "scripts" / "templates"
+    else:
+        # Fallback to relative path
+        template_dir = Path(__file__).parent.parent.parent.parent / "scripts" / "templates"
+
+    # Load template
+    env = Environment(loader=FileSystemLoader(str(template_dir)))
+    template = env.get_template("job_script_minimal.j2")
+
+    # Gather template variables
+    resources = config.get("resources", {})
+    slurm = config.get("slurm", {})
+    model = config.get("model", {})
+
+    total_nodes = calculate_required_nodes(config)
+    gpus_per_node = resources.get("gpus_per_node", 8)
+
+    # Generate timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Render template
+    rendered = template.render(
+        job_name=config.get("name", "srtctl-job"),
+        total_nodes=total_nodes,
+        gpus_per_node=gpus_per_node,
+        account=slurm.get("account", os.environ.get("SLURM_ACCOUNT", "default")),
+        partition=slurm.get("partition", os.environ.get("SLURM_PARTITION", "default")),
+        time_limit=slurm.get("time_limit", "01:00:00"),
+        config_path=str(config_path.resolve()),
+        sglang_config_path=str(sglang_config_path.resolve()) if sglang_config_path else None,
+        timestamp=timestamp,
+        use_gpus_per_node_directive=get_srtslurm_setting("use_gpus_per_node_directive", True),
+        use_segment_sbatch_directive=get_srtslurm_setting("use_segment_sbatch_directive", True),
+    )
+
+    return rendered
+
+
+def submit_with_orchestrator(
+    config_path: Path,
+    config: dict = None,
+    dry_run: bool = False,
+    tags: list[str] = None,
+) -> None:
+    """Submit job using the new Python orchestrator.
+
+    This uses the minimal sbatch template that calls srtctl.cli.do_sweep.
+
+    Args:
+        config_path: Path to YAML config file
+        config: Pre-loaded config dict (or None to load from path)
+        dry_run: If True, print script but don't submit
+        tags: Optional tags for the run
+    """
+    # Load config if needed
+    if config is None:
+        config = load_config(config_path)
+
+    job_name = config.get("name", "srtctl-job")
+
+    # Generate sglang config if needed
+    sglang_config_path = None
+    backend_type = config.get("backend", {}).get("type")
+    if backend_type == "sglang":
+        backend = SGLangBackend(config)
+        sglang_config_path = backend.generate_config_file()
+
+    # Generate minimal sbatch script
+    script_content = generate_minimal_sbatch_script(
+        config=config,
+        config_path=config_path,
+        sglang_config_path=sglang_config_path,
+    )
+
+    if dry_run:
+        print(f"\n{'=' * 60}")
+        print(f"🔍 DRY-RUN (orchestrator mode): {job_name}")
+        print(f"{'=' * 60}")
+        print("\nGenerated sbatch script:")
+        print("-" * 60)
+        print(script_content)
+        print("-" * 60)
+        return
+
+    # Write script to temp file
+    fd, script_path = tempfile.mkstemp(suffix=".slurm", prefix="srtctl_", text=True)
+    with os.fdopen(fd, "w") as f:
+        f.write(script_content)
+    os.chmod(script_path, 0o755)
+
+    logging.info(f"🚀 Submitting job (orchestrator mode): {job_name}")
+    logging.info(f"Script: {script_path}")
+
+    try:
+        # Submit to SLURM
+        result = subprocess.run(
+            ["sbatch", script_path],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        # Parse job ID
+        job_id = result.stdout.strip().split()[-1]
+        logging.info(f"✅ Job submitted: {job_id}")
+
+        # Create output directory
+        output_dir = Path("./outputs") / job_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save config and script
+        shutil.copy(config_path, output_dir / "config.yaml")
+        shutil.copy(script_path, output_dir / "sbatch_script.sh")
+        if sglang_config_path:
+            shutil.copy(sglang_config_path, output_dir / "sglang_config.yaml")
+
+        # Save metadata
+        metadata = {
+            "version": "2.0",
+            "orchestrator": True,
+            "job_id": job_id,
+            "job_name": job_name,
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        if tags:
+            metadata["tags"] = tags
+
+        with open(output_dir / f"{job_id}.json", "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        print(f"\n✅ Job {job_id} submitted!")
+        print(f"📁 Output: {output_dir}")
+        print(f"📋 Monitor: tail -f {output_dir}/logs/sweep_{job_id}.log")
+
+    except subprocess.CalledProcessError as e:
+        logging.error(f"❌ sbatch failed: {e.stderr}")
+        raise
+    finally:
+        # Cleanup temp script
+        try:
+            os.remove(script_path)
+        except OSError:
+            pass
 
 
 def render_commands_file(backend, sglang_config_path: Path, output_path: Path) -> Path:
@@ -319,7 +511,11 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="srtctl - SLURM job submission",
-        epilog="Examples:\n  srtctl apply -f config.yaml\n  srtctl dry-run -f sweep.yaml --sweep",
+        epilog="""Examples:
+  srtctl apply -f config.yaml                    # Legacy mode
+  srtctl apply -f config.yaml --use-orchestrator # New orchestrator mode
+  srtctl dry-run -f sweep.yaml --sweep
+""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -329,6 +525,11 @@ def main():
     def add_common_args(p):
         p.add_argument("-f", "--file", type=Path, required=True, dest="config", help="YAML config file")
         p.add_argument("--sweep", action="store_true", help="Force sweep mode")
+        p.add_argument(
+            "--use-orchestrator",
+            action="store_true",
+            help="Use new Python orchestrator (minimal sbatch, Python-controlled workers)",
+        )
 
     apply_parser = subparsers.add_parser("apply", help="Submit job(s) to SLURM")
     add_common_args(apply_parser)
@@ -345,10 +546,25 @@ def main():
 
     is_dry_run = args.command == "dry-run"
     is_sweep = args.sweep or is_sweep_config(args.config)
+    use_orchestrator = getattr(args, "use_orchestrator", False)
     tags = [t.strip() for t in (getattr(args, "tags", "") or "").split(",") if t.strip()] or None
 
     try:
         setup_script = getattr(args, "setup_script", None)
+
+        # New orchestrator mode
+        if use_orchestrator:
+            if is_sweep:
+                logging.error("Orchestrator mode does not support sweeps yet")
+                sys.exit(1)
+            submit_with_orchestrator(
+                config_path=args.config,
+                dry_run=is_dry_run,
+                tags=tags,
+            )
+            return
+
+        # Legacy mode
         if is_sweep:
             submit_sweep(args.config, dry_run=is_dry_run, setup_script=setup_script, tags=tags)
         else:

@@ -1,0 +1,66 @@
+#!/bin/bash
+#SBATCH --job-name={{ job_name }}
+#SBATCH --nodes={{ total_nodes }}
+#SBATCH --ntasks={{ total_nodes }}
+#SBATCH --ntasks-per-node=1
+{% if use_gpus_per_node_directive %}
+#SBATCH --gpus-per-node={{ gpus_per_node }}
+{% endif %}
+{% if use_segment_sbatch_directive %}
+#SBATCH --segment={{ total_nodes }}
+{% endif %}
+#SBATCH --account={{ account }}
+#SBATCH --time={{ time_limit }}
+#SBATCH --output=./outputs/%j/logs/sweep.log
+#SBATCH --partition={{ partition }}
+
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Minimal sbatch script - orchestration is handled by Python
+# Config: {{ config_path }}
+# Generated: {{ timestamp }}
+
+set -e
+
+# Setup output directories
+mkdir -p "./outputs/${SLURM_JOB_ID}/logs"
+
+# Redirect all output to log file
+exec > >(tee "./outputs/${SLURM_JOB_ID}/logs/sweep_${SLURM_JOB_ID}.log")
+exec 2>&1
+
+echo "=========================================="
+echo "🚀 srtctl Sweep Orchestrator"
+echo "=========================================="
+echo "Job ID: ${SLURM_JOB_ID}"
+echo "Config: {{ config_path }}"
+echo "Nodes: ${SLURM_JOB_NUM_NODES}"
+echo "Start: $(date)"
+echo "=========================================="
+echo ""
+
+# Copy config to output directory for reference
+cp "{{ config_path }}" "./outputs/${SLURM_JOB_ID}/config.yaml"
+{% if sglang_config_path %}
+cp "{{ sglang_config_path }}" "./outputs/${SLURM_JOB_ID}/sglang_config.yaml"
+{% endif %}
+
+# Run the Python orchestrator
+# Use unbuffered output (-u) for real-time logging
+python3 -u -m srtctl.cli.do_sweep "{{ config_path }}" 2>&1 | tee "./outputs/${SLURM_JOB_ID}/logs/orchestrator_${SLURM_JOB_ID}.log"
+
+EXIT_CODE=${PIPESTATUS[0]}
+
+echo ""
+echo "=========================================="
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "✓ Sweep completed successfully"
+else
+    echo "✗ Sweep failed (exit code: $EXIT_CODE)"
+fi
+echo "End: $(date)"
+echo "=========================================="
+
+exit ${EXIT_CODE}
+

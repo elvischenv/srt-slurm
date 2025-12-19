@@ -11,18 +11,31 @@ wait_for_model() {
     local poll=${5:-1}
     local timeout=${6:-600}
     local report_every=${7:-60}
+    local use_sglang_router=${8:-false}
 
     local health_addr="http://${model_host}:${model_port}/health"
-    echo "Polling ${health_addr} every ${poll} seconds to check whether ${n_prefill} prefills and ${n_decode} decodes are alive"
+    local workers_addr="http://${model_host}:${model_port}/workers"
+    
+    if [[ $use_sglang_router == "true" ]]; then
+        echo "Polling ${workers_addr} every ${poll} seconds to check whether ${n_prefill} prefills and ${n_decode} decodes are alive (sglang router mode)"
+    else
+        echo "Polling ${health_addr} every ${poll} seconds to check whether ${n_prefill} prefills and ${n_decode} decodes are alive"
+    fi
 
     local start_ts=$(date +%s)
     local report_ts=$(date +%s)
 
     while :; do
-        # Curl timeout - our primary use case here is to launch it at the first node (localhost), so no timeout is needed.
-        curl_result=$(curl ${health_addr} 2>/dev/null)
-        # Python path - Use of `check_server_health.py` is self-constrained outside of any packaging.
-        check_result=$(python3 /scripts/utils/check_server_health.py $n_prefill $n_decode <<< $curl_result)
+        if [[ $use_sglang_router == "true" ]]; then
+            # sglang router: use /workers endpoint for worker counts
+            curl_result=$(curl ${workers_addr} 2>/dev/null)
+            check_result=$(python3 /scripts/utils/check_server_health.py $n_prefill $n_decode --sglang-router <<< $curl_result)
+        else
+            # dynamo: use /health endpoint
+            curl_result=$(curl ${health_addr} 2>/dev/null)
+            check_result=$(python3 /scripts/utils/check_server_health.py $n_prefill $n_decode <<< $curl_result)
+        fi
+        
         if [[ $check_result == *"Model is ready."* ]]; then
             echo $check_result
             return 0

@@ -248,6 +248,8 @@ class BackendConfig(BaseModel):
 
     # Frontend / router settings
     enable_multiple_frontends: bool = True
+    # Number of additional frontends/routers beyond the first (total = 1 + num_additional_frontends)
+    # Used for both dynamo frontends and sglang-router instances
     num_additional_frontends: int = 9
     # Whether to launch sglang_router alongside the workers (PD disaggregation).
     # This is user-configurable via backend.use_sglang_router in the recipe.

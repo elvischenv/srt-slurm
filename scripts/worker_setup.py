@@ -26,6 +26,7 @@ from worker_setup import (
     setup_logging,
     setup_nginx_worker,
     setup_prefill_worker,
+    setup_router_worker,
 )
 
 
@@ -66,7 +67,7 @@ def _parse_command_line_args(args: list[str] | None = None) -> argparse.Namespac
     )
     parser.add_argument(
         "--worker_type",
-        choices=["decode", "prefill", "frontend", "nginx", "aggregated"],
+        choices=["decode", "prefill", "frontend", "nginx", "aggregated", "sglang-router"],
         required=True,
         help="Type of worker to run",
     )
@@ -87,6 +88,36 @@ def _parse_command_line_args(args: list[str] | None = None) -> argparse.Namespac
         "--nginx_config",
         type=str,
         help="Path to nginx configuration file (required for nginx worker type)",
+    )
+
+    # sglang-router-specific arguments
+    parser.add_argument(
+        "--prefill-ips",
+        type=str,
+        help="Comma-separated list of prefill worker leader IPs (required for sglang-router worker type)",
+    )
+    parser.add_argument(
+        "--decode-ips",
+        type=str,
+        help="Comma-separated list of decode worker leader IPs (required for sglang-router worker type)",
+    )
+    parser.add_argument(
+        "--router-port",
+        type=int,
+        default=8000,
+        help="Port for the router to listen on (default: 8000)",
+    )
+    parser.add_argument(
+        "--server-port",
+        type=int,
+        default=30000,
+        help="Port where prefill/decode servers listen (default: 30000)",
+    )
+    parser.add_argument(
+        "--bootstrap-port",
+        type=int,
+        default=30001,
+        help="Disaggregation bootstrap port for prefill servers (default: 30001)",
     )
 
     parser.add_argument(
@@ -158,6 +189,13 @@ def _validate_args(args: argparse.Namespace) -> None:
     if args.worker_type == "nginx" and not args.nginx_config:
         raise ValueError("--nginx_config is required for nginx worker type")
 
+    # Validate sglang-router-specific arguments
+    if args.worker_type == "sglang-router":
+        if not args.prefill_ips:
+            raise ValueError("--prefill-ips is required for sglang-router worker type")
+        if not args.decode_ips:
+            raise ValueError("--decode-ips is required for sglang-router worker type")
+
 
 def main(input_args: list[str] | None = None):
     setup_logging()
@@ -224,6 +262,18 @@ def main(input_args: list[str] | None = None):
             args.dump_config_path,
             args.setup_script,
             args.use_sglang_router,
+        )
+    elif args.worker_type == "sglang-router":
+        prefill_ips = [ip.strip() for ip in args.prefill_ips.split(",") if ip.strip()]
+        decode_ips = [ip.strip() for ip in args.decode_ips.split(",") if ip.strip()]
+        setup_router_worker(
+            router_idx=args.worker_idx or 0,
+            prefill_ips=prefill_ips,
+            decode_ips=decode_ips,
+            host="0.0.0.0",
+            port=args.router_port,
+            server_port=args.server_port,
+            bootstrap_port=args.bootstrap_port,
         )
 
     logging.info(f"{args.worker_type.capitalize()} worker setup complete")

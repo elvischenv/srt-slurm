@@ -24,14 +24,15 @@ chosen_osl=$6
 concurrency_list=$7
 IFS='x' read -r -a chosen_concurrencies <<< "$concurrency_list"
 chosen_req_rate=$8
+use_sglang_router=${9:-false}
 
-echo "Config ${chosen_isl}; ${chosen_osl}; ${chosen_concurrencies[@]}; ${chosen_req_rate}"
+echo "Config ${chosen_isl}; ${chosen_osl}; ${chosen_concurrencies[@]}; ${chosen_req_rate}; sglang_router=${use_sglang_router}"
 
 wait_for_model_timeout=3600 # 1 hour
 wait_for_model_check_interval=5 # check interval -> 5s
 wait_for_model_report_interval=60 # wait_for_model report interval -> 60s
 
-wait_for_model $head_node $head_port $n_prefill $n_decode $wait_for_model_check_interval $wait_for_model_timeout $wait_for_model_report_interval
+wait_for_model $head_node $head_port $n_prefill $n_decode $wait_for_model_check_interval $wait_for_model_timeout $wait_for_model_report_interval $use_sglang_router
 
 # run a quick curl request against the model to do an accuracy spot check
 curl http://${head_node}:${head_port}/v1/chat/completions   -H "Content-Type: application/json"   -d '{

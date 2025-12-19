@@ -2,45 +2,53 @@
 # SPDX-License-Identifier: Apache-2.0
 # pytest: skip-file
 
+import argparse
 import json
 import sys
 
 """
-A file that parses the response of `curl <host_ip>:<host_port>/health` endpoint
-to check whether the server is ready to be benchmarked.
+A file that parses the response of server health endpoints to check whether the server is ready.
+
+Supports two modes:
+- Dynamo frontend: parses /health endpoint JSON with 'instances' key
+- SGLang router: parses /workers endpoint JSON with 'stats' key
 
 Usage:
 
 ```bash
+# Dynamo mode (default)
 curl_result=$(curl "${host_ip}:${host_port}/health" 2> /dev/null)
 check_result=$(python3 check_server_health.py $N_PREFILL $N_DECODE <<< $curl_result)
 
-# ... then do subsequent processing for check_result ...
+# SGLang router mode
+curl_result=$(curl "${host_ip}:${host_port}/workers" 2> /dev/null)
+check_result=$(python3 check_server_health.py $N_PREFILL $N_DECODE --sglang-router <<< $curl_result)
 ```
 """
 
 
-def check_server_health(expected_n_prefill, expected_n_decode, response):
-    """
-    Checks the health of the server's response
-    and ensures that the number of spinned up prefill & decode
-    matches our expectation.
-    ---
-    Parameter:
-        - expected_n_prefill: string (expect integer), number of expected prefill workers.
-        - expected_n_decode: string (expect integer), number of expected decode workers.
-        - response: string, formatted `curl <url>/health` curl results,
-                    should be JSON-parsable
+def check_sglang_router_health(expected_n_prefill: int, expected_n_decode: int, response: str) -> str:
+    """Check health using sglang router /workers endpoint."""
+    try:
+        decoded_response = json.loads(response)
+    except json.JSONDecodeError:
+        return f"Got invalid response from server that leads to JSON Decode error: {response}"
 
-    Returns:
-        string, a pretty-printable string that tell the current status.
-    """
-    if not (expected_n_prefill.isnumeric() and expected_n_decode.isnumeric()):
-        return f"Got unparsable expected prefill / decode value: {expected_n_prefill} & {expected_n_decode} should be string"
+    if "stats" not in decoded_response:
+        return f"Key 'stats' not found in response: {response}"
 
-    expected_n_prefill = int(expected_n_prefill)
-    expected_n_decode = int(expected_n_decode)
+    stats = decoded_response["stats"]
+    actual_prefill = stats.get("prefill_count", 0)
+    actual_decode = stats.get("decode_count", 0)
 
+    if actual_prefill >= expected_n_prefill and actual_decode >= expected_n_decode:
+        return f"Model is ready. Have {actual_prefill} prefills and {actual_decode} decodes."
+    else:
+        return f"Model is not ready, waiting for {expected_n_prefill - actual_prefill} prefills and {expected_n_decode - actual_decode} decodes. Have {actual_prefill} prefills and {actual_decode} decodes."
+
+
+def check_dynamo_health(expected_n_prefill: int, expected_n_decode: int, response: str) -> str:
+    """Check health using dynamo frontend /health endpoint."""
     try:
         decoded_response = json.loads(response)
     except json.JSONDecodeError:
@@ -71,28 +79,37 @@ def check_server_health(expected_n_prefill, expected_n_decode, response):
         return f"Model is not ready, waiting for {expected_n_prefill} prefills and {expected_n_decode} decodes to spin up. Response: {response}"
 
 
+def check_server_health(
+    expected_n_prefill: str, expected_n_decode: str, response: str, sglang_router: bool = False
+) -> str:
+    """
+    Checks the health of the server's response and ensures worker counts match expectation.
+    """
+    if not (expected_n_prefill.isnumeric() and expected_n_decode.isnumeric()):
+        return f"Got unparsable expected prefill / decode value: {expected_n_prefill} & {expected_n_decode} should be numeric"
+
+    n_prefill = int(expected_n_prefill)
+    n_decode = int(expected_n_decode)
+
+    if sglang_router:
+        return check_sglang_router_health(n_prefill, n_decode, response)
+    else:
+        return check_dynamo_health(n_prefill, n_decode, response)
+
+
 if __name__ == "__main__":
-    """
-    Usage -
-    provide the expected number of prefill / decode as sys args
-    and then provide the `curl` response as an input.
-    E.g.:
-    ```bash
-    curl_result=$(curl "${host_ip}:${host_port}/health" 2> /dev/null)
-    check_result=$(python3 check_server_health.py $N_PREFILL $N_DECODE <<< $curl_result)
-
-    # ... then do subsequent processing for check_result ...
-    ```
-    """
-
-    expected_n_prefill = sys.argv[1]
-    expected_n_decode = sys.argv[2]
+    parser = argparse.ArgumentParser(description="Check server health for benchmarking")
+    parser.add_argument("n_prefill", help="Expected number of prefill workers")
+    parser.add_argument("n_decode", help="Expected number of decode workers")
+    parser.add_argument("--sglang-router", action="store_true", help="Use sglang router /workers format")
+    args = parser.parse_args()
 
     response = sys.stdin.read()
     print(
         check_server_health(
-            expected_n_prefill=expected_n_prefill,
-            expected_n_decode=expected_n_decode,
+            expected_n_prefill=args.n_prefill,
+            expected_n_decode=args.n_decode,
             response=response,
+            sglang_router=args.sglang_router,
         )
     )

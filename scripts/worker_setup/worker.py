@@ -100,14 +100,14 @@ def setup_prefill_worker(
             if not wait_for_etcd(f"http://{master_ip}:{ETCD_CLIENT_PORT}"):
                 raise RuntimeError("Failed to connect to etcd")
 
-    # Install dynamo from PyPI
-    install_dynamo_wheels(gpu_type)
+        # Install dynamo from PyPI (only needed when not using sglang router)
+        install_dynamo_wheels(gpu_type)
 
     # Run custom setup script if provided
     _run_setup_script(setup_script)
 
-    # Start frontend AFTER installing dynamo (traditional mode only)
-    if need_frontend:
+    # Start frontend AFTER installing dynamo (traditional mode only, not when using sglang router)
+    if need_frontend and not use_sglang_router:
         logging.info("Starting frontend in traditional mode (after dynamo installation)")
 
         # Open log files for frontend
@@ -135,6 +135,7 @@ def setup_prefill_worker(
         rank=local_rank,
         profiler=profiler,
         dump_config_path=dump_config_path,
+        use_sglang_router=use_sglang_router,
     )
     return run_command(cmd_to_run)
 
@@ -159,8 +160,8 @@ def setup_decode_worker(
         if not wait_for_etcd(f"http://{master_ip}:{ETCD_CLIENT_PORT}"):
             raise RuntimeError("Failed to connect to etcd")
 
-    # Install dynamo from PyPI
-    install_dynamo_wheels(gpu_type)
+        # Install dynamo from PyPI (only needed when not using sglang router)
+        install_dynamo_wheels(gpu_type)
 
     # Run custom setup script if provided
     _run_setup_script(setup_script)
@@ -179,8 +180,55 @@ def setup_decode_worker(
         rank=local_rank,
         profiler=profiler,
         dump_config_path=dump_config_path,
+        use_sglang_router=use_sglang_router,
     )
     return run_command(cmd_to_run)
+
+
+def setup_router_worker(
+    router_idx: int,
+    prefill_ips: list[str],
+    decode_ips: list[str],
+    host: str = "0.0.0.0",
+    port: int = 8000,
+    server_port: int = 30000,
+    bootstrap_port: int = 30001,
+) -> int:
+    """Setup an sglang router worker for PD disaggregation.
+
+    Args:
+        router_idx: Index of this router instance (for logging)
+        prefill_ips: List of prefill worker leader IPs
+        decode_ips: List of decode worker leader IPs
+        host: Host to bind the router to
+        port: Port to bind the router to
+        server_port: Port where prefill/decode servers listen (default: 30000)
+        bootstrap_port: Disaggregation bootstrap port for prefill servers (default: 30001)
+
+    Returns:
+        Exit code from the router process
+    """
+    logging.info(f"Setting up sglang router {router_idx}")
+    logging.info(f"  Prefill IPs: {prefill_ips}")
+    logging.info(f"  Decode IPs: {decode_ips}")
+    logging.info(f"  Server port: {server_port}, Bootstrap port: {bootstrap_port}")
+
+    # Build router command
+    router_args = ["python", "-m", "sglang_router.launch_router", "--pd-disaggregation"]
+
+    # Prefill servers need: --prefill http://IP:server_port bootstrap_port
+    for ip in prefill_ips:
+        router_args.extend(["--prefill", f"http://{ip}:{server_port}", str(bootstrap_port)])
+
+    # Decode servers just need: --decode http://IP:server_port
+    for ip in decode_ips:
+        router_args.extend(["--decode", f"http://{ip}:{server_port}"])
+
+    router_args.extend(["--host", host, "--port", str(port)])
+
+    cmd = " ".join(router_args)
+    logging.info(f"Router command: {cmd}")
+    return run_command(cmd)
 
 
 def setup_aggregated_worker(
@@ -211,14 +259,14 @@ def setup_aggregated_worker(
             if not wait_for_etcd(f"http://{master_ip}:{ETCD_CLIENT_PORT}"):
                 raise RuntimeError("Failed to connect to etcd")
 
-    # Install dynamo from PyPI
-    install_dynamo_wheels(gpu_type)
+        # Install dynamo from PyPI (only needed when not using sglang router)
+        install_dynamo_wheels(gpu_type)
 
     # Run custom setup script if provided
     _run_setup_script(setup_script)
 
-    # Start frontend AFTER installing dynamo (traditional mode only)
-    if need_frontend:
+    # Start frontend AFTER installing dynamo (traditional mode only, not when using sglang router)
+    if need_frontend and not use_sglang_router:
         logging.info("Starting frontend in traditional mode (after dynamo installation)")
 
         # Open log files for frontend
@@ -246,5 +294,6 @@ def setup_aggregated_worker(
         rank=local_rank,
         profiler=profiler,
         dump_config_path=dump_config_path,
+        use_sglang_router=use_sglang_router,
     )
     return run_command(cmd_to_run)

@@ -338,9 +338,8 @@ echo "srun $ENROOT_ARGS --jobid $SLURM_JOB_ID -w ${nodes[0]} --overlap --pty bas
 {% endif %}
 {% raw %}
 
-# Launch sglang router when enabled
+# Launch sglang router(s) when enabled
 {% endraw %}{% if use_sglang_router %}{% raw %}
-echo "Launching sglang router on ${nodes[0]}"
 # Collect leader IPs for prefill and decode
 PREFILL_LEADER_IPS=()
 for idx in "${prefill_leaders[@]}"; do
@@ -355,19 +354,122 @@ for idx in "${decode_leaders[@]}"; do
     DECODE_LEADER_IPS+=("$ip")
 done
 
-ROUTER_ARGS="--pd-disaggregation"
-for ip in "${PREFILL_LEADER_IPS[@]}"; do
-    ROUTER_ARGS="$ROUTER_ARGS --prefill http://${ip}:30000"
-done
-for ip in "${DECODE_LEADER_IPS[@]}"; do
-    ROUTER_ARGS="$ROUTER_ARGS --decode http://${ip}:30000"
-done
+PREFILL_IPS_STR=$(IFS=,; echo "${PREFILL_LEADER_IPS[*]}")
+DECODE_IPS_STR=$(IFS=,; echo "${DECODE_LEADER_IPS[*]}")
 
-ROUTER_NODE=${nodes[0]}
-cmd="srun --overlap $ENROOT_ARGS --nodes=1 --ntasks=1 --nodelist=$ROUTER_NODE --output=${LOG_DIR}/${ROUTER_NODE}_router.out python -m sglang_router.launch_router $ROUTER_ARGS --host 0.0.0.0 --port 8000"
+{% endraw %}
+{% if enable_multiple_frontends %}
+{% raw %}
+# Multiple router architecture (mirrors dynamo frontend scaling)
+# Node 0: nginx load balancer + first router
+# Node 1+: additional routers distributed across worker nodes
+
+NGINX_NODE=${nodes[0]}
+NGINX_IP=$(get_node_ip "$NGINX_NODE" "$SLURM_JOB_ID" "$NETWORK_INTERFACE")
+
+# Build router host/IP lists
+router_hosts=()
+router_ips=()
+
+# First router always on node 0
+router_hosts+=("$NGINX_NODE")
+router_ips+=("$NGINX_IP")
+
+# Add additional routers (uses same num_additional_frontends setting as dynamo)
+{% endraw %}ADDITIONAL_ROUTERS={{ num_additional_frontends }}{% raw %}
+if [ "$ADDITIONAL_ROUTERS" -gt 0 ]; then
+    # Calculate which nodes get additional routers
+    # Distribute additional routers across nodes, starting from node 1
+    nodes_per_router=$(( (TOTAL_NODES - 1 + ADDITIONAL_ROUTERS - 1) / ADDITIONAL_ROUTERS ))  # ceil division
+    router_node_idx=1  # Start from node 1 (node 0 already has first router)
+
+    for i in $(seq 1 $ADDITIONAL_ROUTERS); do
+        if [ $router_node_idx -lt $TOTAL_NODES ]; then
+            node_name=${nodes[$router_node_idx]}
+            node_ip=$(get_node_ip "$node_name" "$SLURM_JOB_ID" "$NETWORK_INTERFACE")
+            router_hosts+=("$node_name")
+            router_ips+=("$node_ip")
+            echo "Additional router $i on node $router_node_idx: $node_name ($node_ip)"
+            router_node_idx=$((router_node_idx + nodes_per_router))
+        fi
+    done
+fi
+
+echo "Router hosts: ${router_hosts[@]}"
+echo "Router IPs: ${router_ips[@]}"
+
+# Generate nginx configuration for router load balancing
+# Routers use internal port 30080, nginx exposes on 8000
+ROUTER_INTERNAL_PORT=30080
+ROUTER_LIST=$(printf "'%s'," "${router_ips[@]}")
+ROUTER_LIST="[${ROUTER_LIST%,}]"
+export ROUTER_LIST ROUTER_INTERNAL_PORT SCRIPT_DIR LOG_DIR
+python3 - <<'PY'
+import os
+from jinja2 import Template
+
+template_path = os.path.join(os.environ['SCRIPT_DIR'], 'templates/nginx.conf.j2')
+output_path = os.path.join(os.environ['LOG_DIR'], 'nginx.conf')
+
+with open(template_path, 'r') as f:
+    tmpl = Template(f.read())
+
+router_hosts = eval(os.environ['ROUTER_LIST'])
+backend_port = int(os.environ['ROUTER_INTERNAL_PORT'])
+config = tmpl.render(frontend_hosts=router_hosts, backend_port=backend_port)
+
+with open(output_path, 'w') as f:
+    f.write(config)
+PY
+
+# Launch nginx on node 0
+echo "Launching nginx for router load balancing on ${NGINX_NODE}"
+cmd="srun --overlap $ENROOT_ARGS --nodes=1 --ntasks=1 --nodelist=$NGINX_NODE --output=${LOG_DIR}/${NGINX_NODE}_nginx.out python /scripts/worker_setup.py --worker_type nginx --nginx_config /logs/nginx.conf ${WORKER_ARGS}"
 echo "$cmd"
 $cmd &
-{% endraw %}{% endif %}
+
+# Launch first router on node 0 (with nginx)
+# Router listens on internal port, nginx proxies from 8000
+echo "Launching sglang-router 0 on ${NGINX_NODE} (internal port ${ROUTER_INTERNAL_PORT})"
+cmd="srun --overlap $ENROOT_ARGS --nodes=1 --ntasks=1 --nodelist=$NGINX_NODE --output=${LOG_DIR}/${NGINX_NODE}_router_0.out python /scripts/worker_setup.py --worker_type sglang-router --worker_idx 0 --prefill-ips ${PREFILL_IPS_STR} --decode-ips ${DECODE_IPS_STR} --router-port ${ROUTER_INTERNAL_PORT} ${WORKER_ARGS}"
+echo "$cmd"
+$cmd &
+
+# Launch additional routers on designated nodes
+if [ "$ADDITIONAL_ROUTERS" -gt 0 ]; then
+    router_idx=1
+    nodes_per_router=$(( (TOTAL_NODES - 1 + ADDITIONAL_ROUTERS - 1) / ADDITIONAL_ROUTERS ))
+    router_node_idx=1
+
+    for i in $(seq 1 $ADDITIONAL_ROUTERS); do
+        if [ $router_node_idx -lt $TOTAL_NODES ]; then
+            node=${nodes[$router_node_idx]}
+            echo "Launching sglang-router $router_idx on node $router_node_idx: $node (internal port ${ROUTER_INTERNAL_PORT})"
+            cmd="srun --overlap $ENROOT_ARGS --nodes=1 --ntasks=1 --nodelist=$node --output=${LOG_DIR}/${node}_router_${router_idx}.out python /scripts/worker_setup.py --worker_type sglang-router --worker_idx ${router_idx} --prefill-ips ${PREFILL_IPS_STR} --decode-ips ${DECODE_IPS_STR} --router-port ${ROUTER_INTERNAL_PORT} ${WORKER_ARGS}"
+            echo "$cmd"
+            $cmd &
+            router_idx=$((router_idx + 1))
+            router_node_idx=$((router_node_idx + nodes_per_router))
+        fi
+    done
+fi
+
+TOTAL_ROUTERS=$((1 + ADDITIONAL_ROUTERS))
+echo "Frontend available at: http://${NGINX_NODE}:8000 (nginx load balancing ${TOTAL_ROUTERS} sglang-routers)"
+{% endraw %}
+{% else %}
+{% raw %}
+# Single router architecture - no nginx, router directly on node 0 port 8000
+ROUTER_NODE=${nodes[0]}
+echo "Launching single sglang-router on ${ROUTER_NODE} (port 8000)"
+cmd="srun --overlap $ENROOT_ARGS --nodes=1 --ntasks=1 --nodelist=$ROUTER_NODE --output=${LOG_DIR}/${ROUTER_NODE}_router.out python /scripts/worker_setup.py --worker_type sglang-router --worker_idx 0 --prefill-ips ${PREFILL_IPS_STR} --decode-ips ${DECODE_IPS_STR} --router-port 8000 ${WORKER_ARGS}"
+echo "$cmd"
+$cmd &
+
+echo "Frontend available at: http://${ROUTER_NODE}:8000"
+{% endraw %}
+{% endif %}
+{% endif %}
 {% raw %}
 
 echo ""
@@ -380,10 +482,11 @@ echo "scancel $SLURM_JOB_ID"
 
 BENCHMARK_TYPE={{ benchmark_type }}
 BENCHMARK_ARGS="{{ benchmark_arg }}"
+USE_SGLANG_ROUTER={{ "true" if use_sglang_router else "false" }}
 
 {% if do_benchmark %}
 {% raw %}
-srun --nodes=1 --ntasks=1 $ENROOT_ARGS --jobid $SLURM_JOB_ID -w ${nodes[0]} --output=${LOG_DIR}/benchmark.out --overlap bash /scripts/benchmarks/${BENCHMARK_TYPE}/bench.sh $PREFILL_WORKERS $DECODE_WORKERS $PREFILL_GPUS $DECODE_GPUS ${BENCHMARK_ARGS} &
+srun --nodes=1 --ntasks=1 $ENROOT_ARGS --jobid $SLURM_JOB_ID -w ${nodes[0]} --output=${LOG_DIR}/benchmark.out --overlap bash /scripts/benchmarks/${BENCHMARK_TYPE}/bench.sh $PREFILL_WORKERS $DECODE_WORKERS $PREFILL_GPUS $DECODE_GPUS ${BENCHMARK_ARGS} ${USE_SGLANG_ROUTER} &
 {% endraw %}
 {% endif %}
 

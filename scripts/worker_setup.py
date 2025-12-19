@@ -275,7 +275,10 @@ def main(input_args: list[str] | None = None):
     elif args.worker_type == "sglang-router":
         prefill_ips = [ip.strip() for ip in args.prefill_ips.split(",") if ip.strip()]
         decode_ips = [ip.strip() for ip in args.decode_ips.split(",") if ip.strip()]
+<<<<<<< HEAD
         extra_args = json.loads(args.frontend_args) if args.frontend_args else None
+=======
+>>>>>>> main
         setup_router_worker(
             router_idx=args.worker_idx or 0,
             prefill_ips=prefill_ips,
@@ -284,7 +287,10 @@ def main(input_args: list[str] | None = None):
             port=args.router_port,
             server_port=args.server_port,
             bootstrap_port=args.bootstrap_port,
+<<<<<<< HEAD
             extra_args=extra_args,
+=======
+>>>>>>> main
         )
 
     logging.info(f"{args.worker_type.capitalize()} worker setup complete")

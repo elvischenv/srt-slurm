@@ -184,15 +184,45 @@ class TestDynamoHealthErrors:
 
 
 class TestSGLangRouterHealthDisaggregated:
-    """Test SGLang router /workers parsing for disaggregated mode."""
+    """Test SGLang router /workers parsing for disaggregated mode.
+
+    Uses realistic response format from actual SGLang router.
+    """
+
+    def test_all_workers_ready_realistic_format(self):
+        """All expected workers are registered (realistic response format)."""
+        # Realistic format from actual SGLang router
+        response = {
+            "workers": [
+                {"id": "http://10.66.5.20:30000", "worker_type": "decode", "is_healthy": True},
+                {"id": "http://10.66.5.15:30000", "worker_type": "decode", "is_healthy": True},
+                {"id": "http://10.66.5.14:30000", "worker_type": "prefill", "is_healthy": True},
+            ],
+            "total": 3,
+            "stats": {
+                "prefill_count": 1,
+                "decode_count": 2,
+                "regular_count": 0,
+            },
+        }
+
+        result = check_sglang_router_health(response, expected_prefill=1, expected_decode=2)
+
+        assert result.ready is True
+        assert result.prefill_ready == 1
+        assert result.decode_ready == 2
+        assert "Model is ready" in result.message
 
     def test_all_workers_ready(self):
         """All expected workers are registered."""
         response = {
+            "workers": [],
+            "total": 12,
             "stats": {
                 "prefill_count": 4,
                 "decode_count": 8,
-            }
+                "regular_count": 0,
+            },
         }
 
         result = check_sglang_router_health(response, expected_prefill=4, expected_decode=8)
@@ -205,10 +235,13 @@ class TestSGLangRouterHealthDisaggregated:
     def test_more_workers_than_expected(self):
         """More workers than expected is still ready."""
         response = {
+            "workers": [],
+            "total": 16,
             "stats": {
                 "prefill_count": 6,
                 "decode_count": 10,
-            }
+                "regular_count": 0,
+            },
         }
 
         result = check_sglang_router_health(response, expected_prefill=4, expected_decode=8)
@@ -220,10 +253,13 @@ class TestSGLangRouterHealthDisaggregated:
     def test_missing_prefill_workers(self):
         """Not enough prefill workers."""
         response = {
+            "workers": [],
+            "total": 10,
             "stats": {
                 "prefill_count": 2,
                 "decode_count": 8,
-            }
+                "regular_count": 0,
+            },
         }
 
         result = check_sglang_router_health(response, expected_prefill=4, expected_decode=8)
@@ -236,10 +272,13 @@ class TestSGLangRouterHealthDisaggregated:
     def test_missing_decode_workers(self):
         """Not enough decode workers."""
         response = {
+            "workers": [],
+            "total": 7,
             "stats": {
                 "prefill_count": 4,
                 "decode_count": 3,
-            }
+                "regular_count": 0,
+            },
         }
 
         result = check_sglang_router_health(response, expected_prefill=4, expected_decode=8)
@@ -252,10 +291,13 @@ class TestSGLangRouterHealthDisaggregated:
     def test_zero_workers(self):
         """No workers registered yet."""
         response = {
+            "workers": [],
+            "total": 0,
             "stats": {
                 "prefill_count": 0,
                 "decode_count": 0,
-            }
+                "regular_count": 0,
+            },
         }
 
         result = check_sglang_router_health(response, expected_prefill=2, expected_decode=4)
@@ -266,15 +308,40 @@ class TestSGLangRouterHealthDisaggregated:
 
 
 class TestSGLangRouterHealthAggregated:
-    """Test SGLang router /workers parsing for aggregated mode."""
+    """Test SGLang router /workers parsing for aggregated mode.
+
+    In aggregated mode, workers may report as 'regular' instead of prefill/decode.
+    """
+
+    def test_regular_workers_count_as_decode(self):
+        """Regular workers (aggregated mode) count towards decode."""
+        response = {
+            "workers": [],
+            "total": 4,
+            "stats": {
+                "prefill_count": 0,
+                "decode_count": 0,
+                "regular_count": 4,
+            },
+        }
+
+        # Aggregated: expect 0 prefill, 4 decode (regular counts as decode)
+        result = check_sglang_router_health(response, expected_prefill=0, expected_decode=4)
+
+        assert result.ready is True
+        assert result.decode_ready == 4
+        assert "regular workers" in result.message
 
     def test_aggregated_workers_as_decode(self):
-        """In aggregated mode, all workers typically report as decode."""
+        """In aggregated mode, all workers might report as decode."""
         response = {
+            "workers": [],
+            "total": 4,
             "stats": {
                 "prefill_count": 0,
                 "decode_count": 4,
-            }
+                "regular_count": 0,
+            },
         }
 
         # Aggregated: expect 0 prefill, N decode
@@ -283,20 +350,23 @@ class TestSGLangRouterHealthAggregated:
         assert result.ready is True
         assert result.decode_ready == 4
 
-    def test_aggregated_workers_as_prefill(self):
-        """Some setups might report aggregated workers as prefill."""
+    def test_mixed_decode_and_regular(self):
+        """Mix of decode and regular workers."""
         response = {
+            "workers": [],
+            "total": 4,
             "stats": {
-                "prefill_count": 4,
-                "decode_count": 0,
-            }
+                "prefill_count": 0,
+                "decode_count": 2,
+                "regular_count": 2,
+            },
         }
 
-        # Aggregated: expect N prefill, 0 decode
-        result = check_sglang_router_health(response, expected_prefill=4, expected_decode=0)
+        # Both decode and regular should count
+        result = check_sglang_router_health(response, expected_prefill=0, expected_decode=4)
 
         assert result.ready is True
-        assert result.prefill_ready == 4
+        assert result.decode_ready == 4  # 2 decode + 2 regular
 
 
 class TestSGLangRouterHealthErrors:

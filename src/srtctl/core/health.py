@@ -53,10 +53,28 @@ def check_sglang_router_health(
 ) -> WorkerHealthResult:
     """Check health using sglang router /workers endpoint response.
 
+    Expected response format:
+    {
+        "workers": [
+            {"worker_type": "prefill", "is_healthy": true, ...},
+            {"worker_type": "decode", "is_healthy": true, ...},
+        ],
+        "total": 3,
+        "stats": {
+            "prefill_count": 1,
+            "decode_count": 2,
+            "regular_count": 0
+        }
+    }
+
+    For aggregated mode (no prefill/decode split), workers report as "regular"
+    and are counted in regular_count. Pass expected_prefill=0 and use
+    expected_decode for the total expected workers.
+
     Args:
         response_json: Parsed JSON from /workers endpoint
         expected_prefill: Expected number of prefill workers
-        expected_decode: Expected number of decode workers
+        expected_decode: Expected number of decode workers (or agg workers)
 
     Returns:
         WorkerHealthResult with ready status and counts
@@ -70,25 +88,34 @@ def check_sglang_router_health(
     stats = response_json["stats"]
     actual_prefill = stats.get("prefill_count", 0)
     actual_decode = stats.get("decode_count", 0)
+    actual_regular = stats.get("regular_count", 0)
 
-    ready = actual_prefill >= expected_prefill and actual_decode >= expected_decode
+    # For aggregated mode, regular workers count towards decode
+    # (caller passes expected_prefill=0, expected_decode=num_agg)
+    effective_decode = actual_decode + actual_regular
+
+    ready = actual_prefill >= expected_prefill and effective_decode >= expected_decode
 
     if ready:
-        message = f"Model is ready. Have {actual_prefill} prefills and {actual_decode} decodes."
+        message = f"Model is ready. Have {actual_prefill} prefills and {effective_decode} decodes."
+        if actual_regular > 0:
+            message += f" ({actual_regular} regular workers)"
     else:
         message = (
             f"Model is not ready, waiting for "
-            f"{expected_prefill - actual_prefill} prefills and "
-            f"{expected_decode - actual_decode} decodes. "
-            f"Have {actual_prefill} prefills and {actual_decode} decodes."
+            f"{max(0, expected_prefill - actual_prefill)} prefills and "
+            f"{max(0, expected_decode - effective_decode)} decodes. "
+            f"Have {actual_prefill} prefills and {effective_decode} decodes."
         )
+        if actual_regular > 0:
+            message += f" ({actual_regular} regular workers)"
 
     return WorkerHealthResult(
         ready=ready,
         message=message,
         prefill_ready=actual_prefill,
         prefill_expected=expected_prefill,
-        decode_ready=actual_decode,
+        decode_ready=effective_decode,
         decode_expected=expected_decode,
     )
 

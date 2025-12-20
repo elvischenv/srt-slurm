@@ -36,9 +36,8 @@ from srtctl.core.processes import (
     start_process_monitor,
 )
 from srtctl.core.runtime import RuntimeContext
-from srtctl.core.slurm import get_hostname_ip, get_slurm_job_id
 from srtctl.core.schema import SrtConfig
-from srtctl.core.slurm import start_srun_process
+from srtctl.core.slurm import get_hostname_ip, get_slurm_job_id, start_srun_process
 from srtctl.core.topology import Endpoint, Process
 from srtctl.logging_utils import setup_logging
 

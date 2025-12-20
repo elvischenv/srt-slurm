@@ -25,7 +25,6 @@ from srtctl.backends import (
     SGLangServerConfig,
 )
 
-from .ip_utils import get_local_ip, get_node_ip
 from .config import get_srtslurm_setting, load_config
 from .formatting import FormattablePath, FormattableString
 from .health import (
@@ -37,6 +36,7 @@ from .health import (
     wait_for_model,
     wait_for_port,
 )
+from .ip_utils import get_local_ip, get_node_ip
 from .processes import (
     ManagedProcess,
     NamedProcesses,

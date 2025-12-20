@@ -13,7 +13,7 @@ Key modules:
 - core.runtime: RuntimeContext for computed paths and values
 - core.endpoints: Endpoint and Process dataclasses for worker topology
 - core.process_registry: Process lifecycle management
-- backends.configs: Backend-specific configuration dataclasses
+- backends: Backend-specific configuration dataclasses
 - cli.submit: Job submission interface
 - cli.do_sweep: Main orchestration script
 - logging_utils: Logging configuration
@@ -27,7 +27,7 @@ __version__ = "0.3.0"
 
 # Logging utilities (should be first)
 # Backend configs
-from .backends.configs import (
+from .backends import (
     BackendConfig,
     BackendProtocol,
     BackendType,

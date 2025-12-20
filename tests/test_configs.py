@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from srtctl.backends.configs.sglang import SGLangBackendConfig
+from srtctl.backends import SGLangBackendConfig
 from srtctl.core.schema import SrtConfig
 
 

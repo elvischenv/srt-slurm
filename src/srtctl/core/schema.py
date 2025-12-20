@@ -30,7 +30,7 @@ import yaml
 from marshmallow import Schema, ValidationError, fields
 from marshmallow_dataclass import dataclass
 
-from srtctl.backends.configs import (
+from srtctl.backends import (
     BackendConfig,
     SGLangBackendConfig,
 )

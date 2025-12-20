@@ -4,9 +4,9 @@
 """Cluster-style e2e tests for recipe validation."""
 
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import subprocess
 
 import pytest
 
@@ -20,8 +20,10 @@ CI_DIR = Path(__file__).parent.parent / "ci"
 # Cluster Fixtures
 # =============================================================================
 
+
 class GB200NVLRack:
     """GB200 NVL SLURM rack: 18 nodes × 4 GPUs = 72 total GPUs."""
+
     NUM_NODES = 18
     GPUS_PER_NODE = 4
     TOTAL_GPUS = NUM_NODES * GPUS_PER_NODE  # 72
@@ -49,11 +51,13 @@ class GB200NVLRack:
                 result.returncode = 0
                 return result
             raise subprocess.CalledProcessError(1, cmd)
+
         return mock_run
 
 
 class H100Rack:
     """H100 SLURM rack: 13 nodes × 8 GPUs = 104 total GPUs."""
+
     NUM_NODES = 13
     GPUS_PER_NODE = 8
     TOTAL_GPUS = NUM_NODES * GPUS_PER_NODE  # 104
@@ -81,6 +85,7 @@ class H100Rack:
                 result.returncode = 0
                 return result
             raise subprocess.CalledProcessError(1, cmd)
+
         return mock_run
 
 
@@ -88,11 +93,16 @@ class H100Rack:
 # Tests
 # =============================================================================
 
+
 class TestGB200FP4Cluster:
     """GB200 FP4 1k1k configs on GB200 NVL rack (18 nodes × 4 GPUs)."""
 
     RACK = GB200NVLRack
-    RECIPES = list((RECIPES_DIR / "gb200-fp4" / "1k1k").glob("*.yaml")) if (RECIPES_DIR / "gb200-fp4" / "1k1k").exists() else []
+    RECIPES = (
+        list((RECIPES_DIR / "gb200-fp4" / "1k1k").glob("*.yaml"))
+        if (RECIPES_DIR / "gb200-fp4" / "1k1k").exists()
+        else []
+    )
 
     @pytest.mark.parametrize("recipe_path", RECIPES, ids=lambda p: p.name)
     def test_gpus_per_node_is_4(self, recipe_path):
@@ -100,8 +110,10 @@ class TestGB200FP4Cluster:
         with patch.dict(os.environ, self.RACK.slurm_env(), clear=False):
             with patch("subprocess.run", side_effect=self.RACK.mock_scontrol()):
                 config = load_config(str(recipe_path))
-                assert config.resources.gpus_per_node == self.RACK.GPUS_PER_NODE, \
-                    f"{recipe_path.name}: expected gpus_per_node={self.RACK.GPUS_PER_NODE}, got {config.resources.gpus_per_node}"
+                assert config.resources.gpus_per_node == self.RACK.GPUS_PER_NODE, (
+                    f"{recipe_path.name}: expected gpus_per_node={self.RACK.GPUS_PER_NODE}, "
+                    f"got {config.resources.gpus_per_node}"
+                )
 
     @pytest.mark.parametrize("recipe_path", RECIPES, ids=lambda p: p.name)
     def test_fits_in_rack(self, recipe_path):
@@ -111,8 +123,9 @@ class TestGB200FP4Cluster:
                 config = load_config(str(recipe_path))
                 r = config.resources
                 total_nodes_needed = (r.prefill_nodes or 0) + (r.decode_nodes or 0) + (r.agg_nodes or 0)
-                assert total_nodes_needed <= self.RACK.NUM_NODES, \
+                assert total_nodes_needed <= self.RACK.NUM_NODES, (
                     f"{recipe_path.name}: needs {total_nodes_needed} nodes, rack has {self.RACK.NUM_NODES}"
+                )
 
     @pytest.mark.parametrize("recipe_path", RECIPES, ids=lambda p: p.name)
     def test_endpoint_allocation(self, recipe_path):
@@ -140,12 +153,14 @@ class TestGB200FP4Cluster:
                 assert len(decode_eps) == r.num_decode
 
                 for ep in prefill_eps:
-                    assert ep.total_gpus == r.gpus_per_prefill, \
+                    assert ep.total_gpus == r.gpus_per_prefill, (
                         f"prefill endpoint {ep.index} has {ep.total_gpus} GPUs, expected {r.gpus_per_prefill}"
+                    )
 
                 for ep in decode_eps:
-                    assert ep.total_gpus == r.gpus_per_decode, \
+                    assert ep.total_gpus == r.gpus_per_decode, (
                         f"decode endpoint {ep.index} has {ep.total_gpus} GPUs, expected {r.gpus_per_decode}"
+                    )
 
 
 class TestH100Cluster:
@@ -160,8 +175,10 @@ class TestH100Cluster:
         with patch.dict(os.environ, self.RACK.slurm_env(), clear=False):
             with patch("subprocess.run", side_effect=self.RACK.mock_scontrol()):
                 config = load_config(str(recipe_path))
-                assert config.resources.gpus_per_node == self.RACK.GPUS_PER_NODE, \
-                    f"{recipe_path.name}: expected gpus_per_node={self.RACK.GPUS_PER_NODE}, got {config.resources.gpus_per_node}"
+                assert config.resources.gpus_per_node == self.RACK.GPUS_PER_NODE, (
+                    f"{recipe_path.name}: expected gpus_per_node={self.RACK.GPUS_PER_NODE}, "
+                    f"got {config.resources.gpus_per_node}"
+                )
 
     @pytest.mark.parametrize("recipe_path", RECIPES, ids=lambda p: p.name)
     def test_endpoint_allocation(self, recipe_path):
@@ -216,8 +233,9 @@ class TestH100Cluster:
                     )
 
                     for ep in [e for e in endpoints if e.mode == "prefill"]:
-                        assert ep.num_nodes == expected_nodes, \
+                        assert ep.num_nodes == expected_nodes, (
                             f"prefill endpoint should span {expected_nodes} nodes, got {ep.num_nodes}"
+                        )
 
 
 class TestCIConfigs:

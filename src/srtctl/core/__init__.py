@@ -14,13 +14,13 @@ This package contains:
 - utils: Helper functions (srun, wait_for_port, etc.)
 """
 
-# Re-export backend configs from their new location
-from srtctl.backends.configs import (
+# Re-export backend configs
+from srtctl.backends import (
     BackendConfig,
     BackendProtocol,
     BackendType,
     SGLangBackendConfig,
-    SGLangConfig,
+    SGLangServerConfig,
 )
 
 from .config import get_srtslurm_setting, load_config
@@ -64,7 +64,7 @@ __all__ = [
     "ClusterConfig",
     # Backend configs (re-exported from backends.configs)
     "SGLangBackendConfig",
-    "SGLangConfig",
+    "SGLangServerConfig",
     "BackendConfig",
     "BackendProtocol",
     "BackendType",

@@ -103,21 +103,14 @@ When adding SGLang flags or changing command generation logic:
 Example:
 ```python
 def test_new_sglang_flag():
-    config = {
-        "name": "test",
-        # ... minimal config ...
-        "backend": {
-            "sglang_config": {
-                "prefill": {
-                    "my-new-flag": "value"
-                }
-            }
-        }
-    }
+    from srtctl.backends import SGLangBackendConfig, SGLangServerConfig
 
-    backend = SGLangBackend(config)
-    sglang_config_path = backend.generate_config_file()
-    cmd = backend.render_command(mode="prefill", config_path=sglang_config_path)
+    config = SGLangBackendConfig(
+        sglang_config=SGLangServerConfig(
+            prefill={"my-new-flag": "value"}
+        )
+    )
 
-    assert "--my-new-flag value" in cmd
+    flags = config.get_config_for_mode("prefill")
+    assert "my-new-flag" in flags
 ```

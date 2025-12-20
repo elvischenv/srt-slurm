@@ -11,8 +11,11 @@ Key modules:
 - core.config: Configuration loading and validation
 - core.schema: Frozen dataclass definitions (SrtConfig, etc.)
 - core.runtime: RuntimeContext for computed paths and values
-- core.endpoints: Endpoint and Process dataclasses for worker topology
-- core.process_registry: Process lifecycle management
+- core.topology: Endpoint and Process dataclasses for worker allocation
+- core.processes: Process lifecycle management
+- core.slurm: SLURM utilities (srun, nodelist, IP resolution)
+- core.health: HTTP health check and port waiting utilities
+- core.ip_utils: IP address resolution utilities
 - backends: Backend-specific configuration dataclasses
 - cli.submit: Job submission interface
 - cli.do_sweep: Main orchestration script
@@ -36,15 +39,16 @@ from .backends import (
 
 # Core modules
 from .core.config import get_srtslurm_setting, load_config
-from .core.endpoints import Endpoint, Process, allocate_endpoints, endpoints_to_processes
 from .core.formatting import FormattablePath, FormattableString
-from .core.process_registry import (
+from .core.processes import (
     ManagedProcess,
     NamedProcesses,
     ProcessRegistry,
 )
-from .core.runtime import Nodes, RuntimeContext, get_hostname_ip, get_slurm_job_id
+from .core.runtime import Nodes, RuntimeContext
 from .core.schema import SrtConfig
+from .core.slurm import get_hostname_ip, get_slurm_job_id
+from .core.topology import Endpoint, Process, allocate_endpoints, endpoints_to_processes
 from .logging_utils import setup_logging
 
 __all__ = [

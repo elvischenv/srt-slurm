@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from srtctl.core.process_registry import ManagedProcess, ProcessRegistry
+from srtctl.core.processes import ManagedProcess, ProcessRegistry
 
 
 class TestManagedProcess:

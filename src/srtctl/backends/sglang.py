@@ -22,8 +22,8 @@ from marshmallow import Schema
 from marshmallow_dataclass import dataclass
 
 if TYPE_CHECKING:
-    from srtctl.core.endpoints import Endpoint, Process
     from srtctl.core.runtime import RuntimeContext
+    from srtctl.core.topology import Endpoint, Process
 
 # Type alias for worker modes
 WorkerMode = Literal["prefill", "decode", "agg"]
@@ -116,7 +116,7 @@ class SGLangBackendConfig:
         available_nodes: Sequence[str],
     ) -> list["Endpoint"]:
         """Allocate endpoints to nodes."""
-        from srtctl.core.endpoints import allocate_endpoints
+        from srtctl.core.topology import allocate_endpoints
 
         return allocate_endpoints(
             num_prefill=num_prefill,
@@ -135,7 +135,7 @@ class SGLangBackendConfig:
         base_port: int = 8081,
     ) -> list["Process"]:
         """Convert endpoints to processes."""
-        from srtctl.core.endpoints import endpoints_to_processes
+        from srtctl.core.topology import endpoints_to_processes
 
         return endpoints_to_processes(endpoints, base_port)
 
@@ -160,7 +160,7 @@ class SGLangBackendConfig:
             nsys_prefix: Optional nsys profiling command prefix
             dump_config_path: Path to dump config JSON
         """
-        from srtctl.core.runtime import get_hostname_ip
+        from srtctl.core.slurm import get_hostname_ip
 
         mode = process.endpoint_mode
         config = self.get_config_for_mode(mode)
@@ -191,19 +191,17 @@ class SGLangBackendConfig:
         # Start with nsys prefix if provided
         cmd: list[str] = list(nsys_prefix) if nsys_prefix else []
 
-        cmd.extend(
-            [
-                "python3",
-                "-m",
-                python_module,
-                "--model-path",
-                str(runtime.model_path),
-                "--served-model-name",
-                served_model_name,
-                "--host",
-                "0.0.0.0",
-            ]
-        )
+        cmd.extend([
+            "python3",
+            "-m",
+            python_module,
+            "--model-path",
+            str(runtime.model_path),
+            "--served-model-name",
+            served_model_name,
+            "--host",
+            "0.0.0.0",
+        ])
 
         # Add disaggregation mode flag (not for agg mode, not when using sglang router)
         if mode != "agg" and not use_sglang_router:
@@ -212,16 +210,14 @@ class SGLangBackendConfig:
         # Add multi-node coordination flags
         if is_multi_node:
             node_rank = endpoint_nodes.index(process.node)
-            cmd.extend(
-                [
-                    "--dist-init-addr",
-                    f"{leader_ip}:{dist_init_port}",
-                    "--nnodes",
-                    str(len(endpoint_nodes)),
-                    "--node-rank",
-                    str(node_rank),
-                ]
-            )
+            cmd.extend([
+                "--dist-init-addr",
+                f"{leader_ip}:{dist_init_port}",
+                "--nnodes",
+                str(len(endpoint_nodes)),
+                "--node-rank",
+                str(node_rank),
+            ])
 
         # Add config dump path (not when using sglang router)
         if dump_config_path and not use_sglang_router:

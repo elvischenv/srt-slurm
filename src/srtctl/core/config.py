@@ -7,7 +7,6 @@ Config loading and resolution with srtslurm.yaml integration.
 
 This module provides:
 - load_config(): Load YAML config, apply cluster defaults, return typed SrtConfig
-- load_config_dict(): Legacy function returning dict (for backward compatibility)
 - get_srtslurm_setting(): Get cluster-wide settings
 """
 
@@ -180,25 +179,3 @@ def load_config(path: Path | str) -> SrtConfig:
         return config
     except Exception as e:
         raise ValueError(f"Invalid config in {path}: {e}") from e
-
-
-def load_config_dict(path: Path | str) -> dict[str, Any]:
-    """
-    Load config and return as dict (legacy compatibility).
-
-    This is provided for backward compatibility with code that expects
-    a dict. New code should use load_config() which returns SrtConfig.
-
-    Args:
-        path: Path to the YAML configuration file
-
-    Returns:
-        Config as dict
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        ValueError: If config validation fails
-    """
-    config = load_config(path)
-    schema = SrtConfig.Schema()
-    return schema.dump(config)

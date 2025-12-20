@@ -27,17 +27,19 @@ if TYPE_CHECKING:
     from srtctl.benchmarks.base import BenchmarkRunner
 
 from srtctl.core.config import load_config
-from srtctl.core.endpoints import Endpoint, Process
-from srtctl.core.process_registry import (
+from srtctl.core.health import wait_for_model, wait_for_port
+from srtctl.core.processes import (
     ManagedProcess,
     NamedProcesses,
     ProcessRegistry,
     setup_signal_handlers,
     start_process_monitor,
 )
-from srtctl.core.runtime import RuntimeContext, get_hostname_ip, get_slurm_job_id
+from srtctl.core.runtime import RuntimeContext
+from srtctl.core.slurm import get_hostname_ip, get_slurm_job_id
 from srtctl.core.schema import SrtConfig
-from srtctl.core.utils import start_srun_process, wait_for_health, wait_for_port
+from srtctl.core.slurm import start_srun_process
+from srtctl.core.topology import Endpoint, Process
 from srtctl.logging_utils import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -371,13 +373,25 @@ class SweepOrchestrator:
 
         logger.info("Waiting for server health (expecting %d workers: %s)...", num_workers, worker_desc)
 
+        # For aggregated mode: expect 0 prefill, N decode (backend workers count as decode)
+        # For disaggregated mode: expect N prefill, M decode
+        if r.num_agg > 0:
+            n_prefill = 0
+            n_decode = r.num_agg
+        else:
+            n_prefill = r.num_prefill
+            n_decode = r.num_decode
+
         hc = self.config.health_check
-        if not wait_for_health(
-            self.runtime.nodes.head,
-            8000,
-            max_attempts=hc.max_attempts,
-            interval=float(hc.interval_seconds),
-            expected_workers=num_workers,
+        if not wait_for_model(
+            host=self.runtime.nodes.head,
+            port=8000,
+            n_prefill=n_prefill,
+            n_decode=n_decode,
+            poll_interval=float(hc.interval_seconds),
+            timeout=float(hc.max_attempts * hc.interval_seconds),
+            report_every=60.0,
+            use_sglang_router=self.config.frontend.use_sglang_router,
             stop_event=stop_event,
         ):
             logger.error("Server did not become healthy")

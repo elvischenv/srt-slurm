@@ -9,11 +9,12 @@ replacing scattered bash variables and Jinja templating with typed Python.
 """
 
 import os
-import socket
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from .config import get_srtslurm_setting
+from .slurm import get_hostname_ip, get_slurm_nodelist
 
 if TYPE_CHECKING:
     from srtctl.core.schema import SrtConfig
@@ -246,66 +247,3 @@ class RuntimeContext:
                 f"Missing placeholder '{missing_key}' in template. Available placeholders: {', '.join(available_keys)}."
             ) from e
         return os.path.expandvars(formatted)
-
-
-# ============================================================================
-# Utility Functions
-# ============================================================================
-
-
-def get_slurm_job_id() -> str | None:
-    """Get the current SLURM job ID from environment."""
-    return os.environ.get("SLURM_JOB_ID") or os.environ.get("SLURM_JOBID")
-
-
-def get_slurm_nodelist() -> list[str]:
-    """Get list of nodes from SLURM_NODELIST environment variable.
-
-    Returns:
-        List of node hostnames, or empty list if not in SLURM.
-    """
-    nodelist_raw = os.environ.get("SLURM_NODELIST", "")
-    if not nodelist_raw:
-        return []
-
-    # Use scontrol to expand the nodelist
-    try:
-        result = subprocess.run(
-            ["scontrol", "show", "hostnames", nodelist_raw],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return result.stdout.strip().split("\n")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        # Fallback: try simple parsing for non-ranged formats
-        return [nodelist_raw]
-
-
-def get_hostname_ip(hostname: str, network_interface: str | None = None) -> str:
-    """Resolve hostname to IP address.
-
-    Args:
-        hostname: Node hostname to resolve
-        network_interface: Optional network interface to prefer
-
-    Returns:
-        IP address as string
-    """
-    try:
-        # Try socket resolution first
-        ip = socket.gethostbyname(hostname)
-        return ip
-    except socket.gaierror:
-        # Fallback: return hostname as-is (may be IP already)
-        return hostname
-
-
-def get_srtslurm_setting(key: str, default=None):
-    """Get a setting from srtslurm.yaml cluster config.
-
-    Wrapper to avoid circular imports.
-    """
-    from srtctl.core.config import get_srtslurm_setting as _get_setting
-
-    return _get_setting(key, default)

@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Any, Optional, Protocol
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from srtctl.core.endpoints import Endpoint, Process
     from srtctl.core.runtime import RuntimeContext
+    from srtctl.core.topology import Endpoint, Process
 
 
 class BackendType(str, Enum):

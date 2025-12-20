@@ -5,7 +5,7 @@
 
 import pytest
 
-from srtctl.core.endpoints import allocate_endpoints, endpoints_to_processes
+from srtctl.core.topology import allocate_endpoints, endpoints_to_processes
 
 
 class TestAllocateEndpoints:

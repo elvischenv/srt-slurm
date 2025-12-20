@@ -2,21 +2,6 @@
 
 ## srtctl vs Ignition Comparison (Post-Refactor)
 
-### ✅ **Now Aligned**
-
-| Feature                    | Ignition                                     | srtctl                                             | Status  |
-| -------------------------- | -------------------------------------------- | -------------------------------------------------- | ------- |
-| **Config System**          | `marshmallow_dataclass` frozen dataclasses   | `marshmallow_dataclass` frozen dataclasses         | ✅ Same |
-| **FormattablePath/String** | Deferred path expansion with runtime context | Same - `FormattablePath`, `FormattableString`      | ✅ Same |
-| **BackendProtocol**        | Protocol interface for backends              | Same - `BackendProtocol` in `backends/protocol.py` | ✅ Same |
-| **Polymorphic Backend**    | `BackendConfigField` for trtllm/sglang/vllm  | Same - `BackendConfigField` in `schema.py`         | ✅ Same |
-| **SweepOrchestrator**      | Frozen dataclass with `@cached_property`     | Same pattern in `do_sweep.py`                      | ✅ Same |
-| **RuntimeContext**         | Single source of truth for paths/nodes       | Same - `RuntimeContext`                            | ✅ Same |
-| **ProcessRegistry**        | Manages process lifecycle, cleanup           | Same - `ProcessRegistry`                           | ✅ Same |
-| **Logging Utils**          | Emoji constants, `section()`, `get_logger()` | Same - `logging_utils.py`                          | ✅ Same |
-| **Minimal sbatch**         | Python orchestrator, not bash                | Same - `job_script_minimal.j2`                     | ✅ Same |
-| **`start_srun_process`**   | Typed wrapper for srun calls                 | Same in `utils.py`                                 | ✅ Same |
-
 ### ⚠️ **Key Differences Remaining**
 
 | Feature                   | Ignition                                    | srtctl                                 | Gap                                 |

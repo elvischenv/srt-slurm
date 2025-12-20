@@ -5,8 +5,9 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from srtctl.core.runtime import RuntimeContext
@@ -17,19 +18,22 @@ if TYPE_CHECKING:
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
 
-class BenchmarkRunner(Protocol):
-    """Protocol that all benchmark runners must implement."""
+class BenchmarkRunner(ABC):
+    """Abstract base class that all benchmark runners must inherit."""
 
     @property
+    @abstractmethod
     def name(self) -> str:
         """Human-readable name for logging."""
         ...
 
     @property
+    @abstractmethod
     def script_path(self) -> str:
         """Path to the benchmark script inside the container."""
         ...
 
+    @abstractmethod
     def validate_config(self, config: SrtConfig) -> list[str]:
         """Validate that config has all required fields.
 
@@ -38,6 +42,7 @@ class BenchmarkRunner(Protocol):
         """
         ...
 
+    @abstractmethod
     def build_command(
         self,
         config: SrtConfig,
@@ -64,7 +69,7 @@ def register_benchmark(name: str):
 
     Usage:
         @register_benchmark("sa-bench")
-        class SABenchRunner:
+        class SABenchRunner(BenchmarkRunner):
             ...
     """
 

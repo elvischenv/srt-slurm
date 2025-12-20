@@ -5,10 +5,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from srtctl.benchmarks.base import SCRIPTS_DIR, register_benchmark
+from srtctl.benchmarks.base import SCRIPTS_DIR, BenchmarkRunner, register_benchmark
 
 if TYPE_CHECKING:
     from srtctl.core.runtime import RuntimeContext
@@ -16,8 +15,7 @@ if TYPE_CHECKING:
 
 
 @register_benchmark("longbenchv2")
-@dataclass
-class LongBenchV2Runner:
+class LongBenchV2Runner(BenchmarkRunner):
     """LongBench v2 long-context evaluation benchmark.
 
     Tests model performance on long-context tasks.

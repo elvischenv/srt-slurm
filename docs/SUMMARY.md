@@ -2,9 +2,10 @@
 
 - [Introduction](README.md)
 - [Installation](installation.md)
+- [CLI Reference](cli.md)
+- [Parameter Sweeps](sweeps.md)
 - [SGLang Router](sglang-router.md)
 - [Profiling](profiling.md)
 - [Monitoring](monitoring.md)
-- [Parameter Sweeps](sweeps.md)
 - [Analyzing](analyzing.md)
 - [SLURM FAQ](slurm-faq.md)

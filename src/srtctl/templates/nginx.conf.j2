@@ -12,7 +12,7 @@ http {
 
     # The main server block that listens for incoming traffic.
     server {
-        listen 8000; # Listen on port 8000 for incoming HTTP requests.
+        listen {{ listen_port | default(8000) }}; # Public-facing port for incoming HTTP requests.
 
         location / {
             # Pass the request to the upstream group defined above.

@@ -45,6 +45,26 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class FrontendTopology:
+    """Describes where nginx and frontends should run.
+
+    Topology rules:
+    - Single node OR multiple_frontends disabled: 1 frontend on head, no nginx
+    - 2+ nodes AND multiple_frontends enabled: nginx on head, frontends on other nodes
+    """
+
+    nginx_node: str | None  # Node running nginx, or None if no nginx
+    frontend_nodes: list[str]  # Nodes running frontends
+    frontend_port: int  # Port frontends listen on
+    public_port: int  # Public-facing port (nginx or direct frontend)
+
+    @property
+    def uses_nginx(self) -> bool:
+        """Whether this topology uses nginx."""
+        return self.nginx_node is not None
+
+
+@dataclass
 class SweepOrchestrator:
     """Main orchestrator for benchmark sweeps.
 
@@ -270,56 +290,184 @@ class SweepOrchestrator:
         logger.info("Started %d worker processes", len(result))
         return result
 
-    def start_frontend(self, registry: ProcessRegistry) -> ManagedProcess | None:
-        """Start the frontend."""
-        logger.info("Starting frontend")
+    # =========================================================================
+    # Frontend Topology and Startup
+    # =========================================================================
 
+    def _compute_frontend_topology(self) -> FrontendTopology:
+        """Determine where nginx and frontends should run.
+
+        Topology rules:
+        - Single node OR multiple_frontends disabled: 1 frontend on head, no nginx
+        - 2+ nodes AND multiple_frontends enabled: nginx on head, frontends on other nodes
+
+        Returns:
+            FrontendTopology describing where to run nginx and frontends.
+        """
+        nodes = self.runtime.nodes.worker
+        head = self.runtime.nodes.head
+        fe_config = self.config.frontend
+
+        # Single node or multiple frontends disabled: single frontend, no nginx
+        if len(nodes) == 1 or not fe_config.enable_multiple_frontends:
+            return FrontendTopology(
+                nginx_node=None,
+                frontend_nodes=[head],
+                frontend_port=8000,
+                public_port=8000,
+            )
+
+        # Multiple nodes with multiple frontends enabled:
+        # nginx on head, frontends on other nodes
+        other_nodes = [n for n in nodes if n != head]
+
+        # Limit number of frontends based on config (num_additional_frontends is extra beyond first)
+        max_frontends = min(
+            fe_config.num_additional_frontends + 1,
+            len(other_nodes),
+        )
+        frontend_nodes = other_nodes[:max_frontends]
+
+        logger.info(
+            "Frontend topology: nginx on %s, %d frontends on %s",
+            head,
+            len(frontend_nodes),
+            frontend_nodes,
+        )
+
+        return FrontendTopology(
+            nginx_node=head,
+            frontend_nodes=frontend_nodes,
+            frontend_port=8080,  # Internal port behind nginx
+            public_port=8000,  # Public port exposed by nginx
+        )
+
+    def start_frontend(self, registry: ProcessRegistry) -> list[ManagedProcess]:
+        """Start the frontend layer (nginx + frontends if applicable).
+
+        Returns:
+            List of ManagedProcess instances for all frontend processes.
+        """
+        logger.info("Starting frontend layer")
+        topology = self._compute_frontend_topology()
+        processes: list[ManagedProcess] = []
+
+        # Start nginx if topology requires it
+        if topology.uses_nginx:
+            nginx_proc = self._start_nginx(topology)
+            processes.append(nginx_proc)
+
+        # Start frontends on designated nodes
         if self.config.frontend.use_sglang_router:
-            return self._start_sglang_router()
+            frontend_procs = self._start_sglang_routers(topology)
         else:
-            return self._start_dynamo_frontend()
+            frontend_procs = self._start_dynamo_frontends(topology)
 
-    def _start_dynamo_frontend(self) -> ManagedProcess:
-        """Start dynamo frontend on the head node."""
-        logger.info("Starting dynamo frontend on %s", self.runtime.nodes.head)
+        processes.extend(frontend_procs)
+        return processes
 
-        frontend_log = self.runtime.log_dir / f"{self.runtime.nodes.head}_frontend_0.out"
-        cmd = ["python3", "-m", "dynamo.frontend", "--http-port=8000"]
-        cmd.extend(self.config.frontend.get_router_args_list())
+    def _start_nginx(self, topology: FrontendTopology) -> ManagedProcess:
+        """Start nginx load balancer on the designated node."""
+        assert topology.nginx_node is not None
+        logger.info("Starting nginx on %s", topology.nginx_node)
 
-        env_to_set = {
-            "ETCD_ENDPOINTS": f"http://{self.runtime.nodes.head}:2379",
-            "NATS_SERVER": f"nats://{self.runtime.nodes.head}:4222",
-        }
+        nginx_log = self.runtime.log_dir / f"{topology.nginx_node}_nginx.out"
 
-        # Use the same preamble (setup script + dynamo install) as workers
-        bash_preamble = self._build_worker_preamble()
+        # Generate nginx config from template
+        nginx_config = self._generate_nginx_config(topology)
+        nginx_config_path = self.runtime.log_dir / "nginx.conf"
+        nginx_config_path.write_text(nginx_config)
+        logger.debug("Nginx config written to %s", nginx_config_path)
+
+        # Install nginx if not present, then run it
+        # daemon off keeps nginx in foreground so srun can manage it
+        cmd = ["nginx", "-c", str(nginx_config_path), "-g", "daemon off;"]
+
+        # Preamble to install nginx if not available
+        bash_preamble = """
+if ! command -v nginx &> /dev/null; then
+    echo "Installing nginx..."
+    apt-get update -qq && apt-get install -y -qq nginx
+fi
+"""
 
         proc = start_srun_process(
             command=cmd,
-            nodelist=[self.runtime.nodes.head],
-            output=str(frontend_log),
+            nodelist=[topology.nginx_node],
+            output=str(nginx_log),
             container_image=str(self.runtime.container_image),
             container_mounts=self.runtime.container_mounts,
-            env_to_set=env_to_set,
             bash_preamble=bash_preamble,
         )
 
         return ManagedProcess(
-            name="frontend",
+            name="nginx",
             popen=proc,
-            log_file=frontend_log,
-            node=self.runtime.nodes.head,
+            log_file=nginx_log,
+            node=topology.nginx_node,
             critical=True,
         )
 
-    def _start_sglang_router(self) -> ManagedProcess:
-        """Start sglang-router on the head node."""
-        logger.info("Starting sglang-router on %s", self.runtime.nodes.head)
+    def _generate_nginx_config(self, topology: FrontendTopology) -> str:
+        """Generate nginx configuration from template."""
+        from jinja2 import Environment, FileSystemLoader
 
-        router_log = self.runtime.log_dir / f"{self.runtime.nodes.head}_router.out"
+        template_dir = Path(__file__).parent.parent / "templates"
+        env = Environment(loader=FileSystemLoader(str(template_dir)))
+        template = env.get_template("nginx.conf.j2")
 
-        # Collect prefill and decode leader info from processes
+        # Get IPs for frontend nodes
+        frontend_hosts = [get_hostname_ip(node) for node in topology.frontend_nodes]
+
+        return template.render(
+            frontend_hosts=frontend_hosts,
+            backend_port=topology.frontend_port,
+            listen_port=topology.public_port,
+        )
+
+    def _start_dynamo_frontends(self, topology: FrontendTopology) -> list[ManagedProcess]:
+        """Start dynamo frontends on designated nodes."""
+        processes: list[ManagedProcess] = []
+
+        for idx, node in enumerate(topology.frontend_nodes):
+            logger.info("Starting dynamo frontend %d on %s", idx, node)
+
+            frontend_log = self.runtime.log_dir / f"{node}_frontend_{idx}.out"
+            cmd = ["python3", "-m", "dynamo.frontend", f"--http-port={topology.frontend_port}"]
+            cmd.extend(self.config.frontend.get_router_args_list())
+
+            env_to_set = {
+                "ETCD_ENDPOINTS": f"http://{self.runtime.nodes.head}:2379",
+                "NATS_SERVER": f"nats://{self.runtime.nodes.head}:4222",
+            }
+
+            bash_preamble = self._build_worker_preamble()
+
+            proc = start_srun_process(
+                command=cmd,
+                nodelist=[node],
+                output=str(frontend_log),
+                container_image=str(self.runtime.container_image),
+                container_mounts=self.runtime.container_mounts,
+                env_to_set=env_to_set,
+                bash_preamble=bash_preamble,
+            )
+
+            processes.append(
+                ManagedProcess(
+                    name=f"frontend_{idx}",
+                    popen=proc,
+                    log_file=frontend_log,
+                    node=node,
+                    critical=True,
+                )
+            )
+
+        return processes
+
+    def _start_sglang_routers(self, topology: FrontendTopology) -> list[ManagedProcess]:
+        """Start sglang routers on designated nodes."""
+        # Collect prefill and decode leader info from backend processes
         prefill_leaders: list[tuple[str, int, int]] = []  # (ip, http_port, bootstrap_port)
         decode_leaders: list[tuple[str, int]] = []  # (ip, http_port)
 
@@ -333,33 +481,44 @@ class SweepOrchestrator:
             elif process.endpoint_mode == "decode":
                 decode_leaders.append((leader_ip, process.http_port))
 
-        cmd = ["python", "-m", "sglang_router.launch_router", "--pd-disaggregation"]
+        processes: list[ManagedProcess] = []
 
-        for ip, http_port, bootstrap_port in prefill_leaders:
-            cmd.extend(["--prefill", f"http://{ip}:{http_port}", str(bootstrap_port)])
-        for ip, http_port in decode_leaders:
-            cmd.extend(["--decode", f"http://{ip}:{http_port}"])
+        for idx, node in enumerate(topology.frontend_nodes):
+            logger.info("Starting sglang-router %d on %s", idx, node)
 
-        cmd.extend(["--host", "0.0.0.0", "--port", "8000"])
-        cmd.extend(self.config.frontend.get_router_args_list())
+            router_log = self.runtime.log_dir / f"{node}_router_{idx}.out"
 
-        logger.info("Router command: %s", shlex.join(cmd))
+            cmd = ["python", "-m", "sglang_router.launch_router", "--pd-disaggregation"]
 
-        proc = start_srun_process(
-            command=cmd,
-            nodelist=[self.runtime.nodes.head],
-            output=str(router_log),
-            container_image=str(self.runtime.container_image),
-            container_mounts=self.runtime.container_mounts,
-        )
+            for ip, http_port, bootstrap_port in prefill_leaders:
+                cmd.extend(["--prefill", f"http://{ip}:{http_port}", str(bootstrap_port)])
+            for ip, http_port in decode_leaders:
+                cmd.extend(["--decode", f"http://{ip}:{http_port}"])
 
-        return ManagedProcess(
-            name="sglang_router",
-            popen=proc,
-            log_file=router_log,
-            node=self.runtime.nodes.head,
-            critical=True,
-        )
+            cmd.extend(["--host", "0.0.0.0", "--port", str(topology.frontend_port)])
+            cmd.extend(self.config.frontend.get_router_args_list())
+
+            logger.info("Router command: %s", shlex.join(cmd))
+
+            proc = start_srun_process(
+                command=cmd,
+                nodelist=[node],
+                output=str(router_log),
+                container_image=str(self.runtime.container_image),
+                container_mounts=self.runtime.container_mounts,
+            )
+
+            processes.append(
+                ManagedProcess(
+                    name=f"sglang_router_{idx}",
+                    popen=proc,
+                    log_file=router_log,
+                    node=node,
+                    critical=True,
+                )
+            )
+
+        return processes
 
     def run_benchmark(self, registry: ProcessRegistry, stop_event: threading.Event) -> int:
         """Run the benchmark."""
@@ -627,9 +786,9 @@ class SweepOrchestrator:
             worker_procs = self.start_all_workers()
             registry.add_processes(worker_procs)
 
-            frontend_proc = self.start_frontend(registry)
-            if frontend_proc:
-                registry.add_process(frontend_proc)
+            frontend_procs = self.start_frontend(registry)
+            for proc in frontend_procs:
+                registry.add_process(proc)
 
             self._print_connection_info()
 

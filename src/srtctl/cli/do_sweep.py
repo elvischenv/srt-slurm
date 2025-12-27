@@ -379,17 +379,12 @@ class SweepOrchestrator:
         nginx_config_path.write_text(nginx_config)
         logger.debug("Nginx config written to %s", nginx_config_path)
 
-        # Install nginx if not present, then run it
-        # daemon off keeps nginx in foreground so srun can manage it
-        cmd = ["nginx", "-c", str(nginx_config_path), "-g", "daemon off;"]
-
-        # Preamble to install nginx if not available
-        bash_preamble = """
-if ! command -v nginx &> /dev/null; then
-    echo "Installing nginx..."
-    apt-get update -qq && apt-get install -y -qq nginx
-fi
-"""
+        # Install nginx and run it (daemon off keeps nginx in foreground so srun can manage it)
+        cmd = [
+            "bash", "-c",
+            f"apt-get update -qq && apt-get install -y -qq nginx && "
+            f"nginx -c {nginx_config_path} -g 'daemon off;'"
+        ]
 
         proc = start_srun_process(
             command=cmd,
@@ -397,7 +392,7 @@ fi
             output=str(nginx_log),
             container_image=str(self.runtime.container_image),
             container_mounts=self.runtime.container_mounts,
-            bash_preamble=bash_preamble,
+            use_bash_wrapper=False,  # Already wrapped in bash -c
         )
 
         return ManagedProcess(

@@ -218,3 +218,58 @@ class TestEndpointsToProcesses:
             assert len(p.gpu_indices) == 2
             # Check cuda_visible_devices is formatted correctly
             assert "," in p.cuda_visible_devices or p.cuda_visible_devices.isdigit()
+
+    def test_kv_events_port_allocation(self):
+        """Test that kv_events_port is allocated for all worker leaders."""
+        endpoints = allocate_endpoints(
+            num_prefill=2,
+            num_decode=2,
+            num_agg=0,
+            gpus_per_prefill=2,
+            gpus_per_decode=2,
+            gpus_per_agg=8,
+            gpus_per_node=4,
+            available_nodes=("node0", "node1"),
+        )
+
+        processes = endpoints_to_processes(endpoints, base_sys_port=8081)
+
+        # Get all leaders (they should have kv_events_port)
+        leaders = [p for p in processes if p.is_leader]
+        assert len(leaders) == 4  # 2 prefill + 2 decode
+
+        # All leaders should have globally unique kv_events_port
+        kv_ports = [p.kv_events_port for p in leaders]
+        assert all(port is not None for port in kv_ports)
+        assert len(kv_ports) == len(set(kv_ports)), "All kv_events_ports should be globally unique"
+
+        # Ports should be sequential starting from 5550
+        assert sorted(kv_ports) == [5550, 5551, 5552, 5553]
+
+        # Non-leaders should not have kv_events_port
+        non_leaders = [p for p in processes if not p.is_leader]
+        for p in non_leaders:
+            assert p.kv_events_port is None
+
+    def test_kv_events_port_same_node_unique(self):
+        """Test kv_events_port is unique even when workers share a node."""
+        # 2 prefill workers on same node
+        endpoints = allocate_endpoints(
+            num_prefill=2,
+            num_decode=0,
+            num_agg=0,
+            gpus_per_prefill=2,
+            gpus_per_decode=2,
+            gpus_per_agg=8,
+            gpus_per_node=4,
+            available_nodes=("node0",),
+        )
+
+        processes = endpoints_to_processes(endpoints, base_sys_port=8081)
+
+        # Both on node0, both should have unique ports
+        assert len(processes) == 2
+        assert processes[0].node == processes[1].node == "node0"
+        assert processes[0].kv_events_port != processes[1].kv_events_port
+        assert processes[0].kv_events_port == 5550
+        assert processes[1].kv_events_port == 5551

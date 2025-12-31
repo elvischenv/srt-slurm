@@ -8,6 +8,7 @@ Implements BackendProtocol for SGLang inference serving with prefill/decode disa
 """
 
 import builtins
+import json
 from collections.abc import Sequence
 from dataclasses import field
 from pathlib import Path
@@ -75,6 +76,11 @@ class SGLangProtocol:
     # SGLang server CLI config per mode
     sglang_config: SGLangServerConfig | None = None
 
+    # KV events config - enables --kv-events-config with auto-allocated ports
+    # Per-mode: {"prefill": true, "decode": {"publisher": "zmq", "topic": "custom"}}
+    # Or global: true (enables for prefill+decode with defaults)
+    kv_events_config: bool | dict[str, Any] | None = None
+
     Schema: ClassVar[builtins.type[Schema]] = Schema
 
     # =========================================================================
@@ -103,6 +109,38 @@ class SGLangProtocol:
         elif mode == "agg":
             return dict(self.aggregated_environment)
         return {}
+
+    def is_grpc_mode(self, mode: WorkerMode) -> bool:
+        """Check if gRPC mode is enabled for a worker mode."""
+        config = self.get_config_for_mode(mode)
+        return config.get("grpc-mode", False)
+
+    def get_kv_events_config_for_mode(self, mode: WorkerMode) -> dict[str, str] | None:
+        """Get kv-events config for a worker mode.
+
+        Returns None if disabled, or dict with publisher/topic if enabled.
+        """
+        if not self.kv_events_config:
+            return None
+
+        # Global bool: enable for prefill+decode with defaults
+        if self.kv_events_config is True:
+            if mode in ("prefill", "decode"):
+                return {"publisher": "zmq", "topic": "kv-events"}
+            return None
+
+        # Per-mode config dict
+        if isinstance(self.kv_events_config, dict):
+            mode_cfg = self.kv_events_config.get(mode)
+            if mode_cfg is None:
+                return None
+            if mode_cfg is True:
+                return {"publisher": "zmq", "topic": "kv-events"}
+            if isinstance(mode_cfg, dict):
+                # Merge with defaults
+                return {"publisher": "zmq", "topic": "kv-events", **mode_cfg}
+
+        return None
 
     def allocate_endpoints(
         self,
@@ -144,7 +182,7 @@ class SGLangProtocol:
         process: "Process",
         endpoint_processes: list["Process"],
         runtime: "RuntimeContext",
-        use_sglang_router: bool = False,
+        frontend_type: str = "dynamo",
         profiling_enabled: bool = False,
         nsys_prefix: list[str] | None = None,
         dump_config_path: Path | None = None,
@@ -155,7 +193,7 @@ class SGLangProtocol:
             process: The process to start
             endpoint_processes: All processes for this endpoint (for multi-node)
             runtime: Runtime context with paths and settings
-            use_sglang_router: Use sglang.launch_server instead of dynamo.sglang
+            frontend_type: Frontend type - "sglang" uses sglang.launch_server, "dynamo" uses dynamo.sglang
             profiling_enabled: Whether profiling is enabled (forces sglang.launch_server)
             nsys_prefix: Optional nsys profiling command prefix
             dump_config_path: Path to dump config JSON
@@ -175,7 +213,7 @@ class SGLangProtocol:
 
         # Choose Python module
         # When profiling is enabled, always use sglang.launch_server (not dynamo.sglang)
-        use_sglang = use_sglang_router or profiling_enabled
+        use_sglang = frontend_type == "sglang" or profiling_enabled
         python_module = "sglang.launch_server" if use_sglang else "dynamo.sglang"
 
         # Get served model name from config
@@ -210,9 +248,12 @@ class SGLangProtocol:
         if use_sglang:
             cmd.extend(["--port", str(process.http_port)])
 
-        # Add disaggregation mode flag (not for agg mode, not when using sglang router)
-        if mode != "agg" and not use_sglang_router:
+        # Add disaggregation mode for prefill/decode workers (both dynamo and sglang frontend)
+        if mode != "agg":
             cmd.extend(["--disaggregation-mode", mode])
+            # Bootstrap port only needed for sglang frontend (dynamo handles internally)
+            if frontend_type == "sglang" and mode == "prefill" and process.bootstrap_port is not None:
+                cmd.extend(["--disaggregation-bootstrap-port", str(process.bootstrap_port)])
 
         # Add multi-node coordination flags
         if is_multi_node:
@@ -228,9 +269,16 @@ class SGLangProtocol:
                 ]
             )
 
-        # Add config dump path (not when using sglang router)
-        if dump_config_path and not use_sglang_router:
+        # Add config dump path (not when using sglang frontend)
+        if dump_config_path and frontend_type != "sglang":
             cmd.extend(["--dump-config-to", str(dump_config_path)])
+
+        # Add kv-events-config if enabled for this mode and we have an allocated port
+        kv_cfg = self.get_kv_events_config_for_mode(mode)
+        if kv_cfg and process.kv_events_port is not None:
+            # Add the endpoint with the allocated port
+            kv_cfg["endpoint"] = f"tcp://*:{process.kv_events_port}"
+            cmd.extend(["--kv-events-config", json.dumps(kv_cfg)])
 
         # Add all config flags
         cmd.extend(_config_to_cli_args(config))

@@ -91,6 +91,7 @@ class BenchmarkType(str, Enum):
     MANUAL = "manual"
     SA_BENCH = "sa-bench"
     ROUTER = "router"
+    MOONCAKE_ROUTER = "mooncake-router"
     MMLU = "mmlu"
     GPQA = "gpqa"
     LONGBENCHV2 = "longbenchv2"
@@ -286,6 +287,10 @@ class ResourceConfig:
     def gpus_per_decode(self) -> int:
         if self.decode_nodes and self.decode_workers:
             return (self.decode_nodes * self.gpus_per_node) // self.decode_workers
+        # decode_nodes=0 with decode_workers means "share nodes with prefill"
+        # Inherit TP from prefill in this case
+        if self.decode_nodes == 0 and self.decode_workers:
+            return self.gpus_per_prefill
         return self.gpus_per_node
 
     @property
@@ -339,6 +344,10 @@ class BenchmarkConfig:
     num_requests: int | None = None
     concurrency: int | None = None
     prefix_ratios: list[float] | str | None = None
+    # Mooncake router benchmark fields (uses aiperf with mooncake_trace)
+    mooncake_workload: str | None = None  # "mooncake", "conversation", "synthetic", "toolagent"
+    ttft_threshold_ms: int | None = None  # Goodput TTFT threshold in ms (default: 2000)
+    itl_threshold_ms: int | None = None  # Goodput ITL threshold in ms (default: 25)
 
     def get_concurrency_list(self) -> list[int]:
         if self.concurrencies is None:
@@ -480,29 +489,89 @@ class ProfilingConfig:
     Schema: ClassVar[builtins.type[Schema]] = Schema
 
 
-@dataclass(frozen=True)
-class FrontendConfig:
-    """Frontend/router configuration."""
+@dataclass
+class DynamoConfig:
+    """Dynamo installation configuration.
 
-    use_sglang_router: bool = False
-    enable_multiple_frontends: bool = True
-    num_additional_frontends: int = 9
-    sglang_router_args: dict[str, Any] | None = None
-    dynamo_frontend_args: dict[str, Any] | None = None
+    Only one of version, hash, or top_of_tree should be specified.
+    Defaults to version="0.7.0" (pip install).
 
-    def get_router_args_list(self) -> list[str]:
-        args = self.sglang_router_args if self.use_sglang_router else self.dynamo_frontend_args
-        if not args:
-            return []
-        result = []
-        for key, value in args.items():
-            if value is True:
-                result.append(f"--{key}")
-            elif value is not False and value is not None:
-                result.extend([f"--{key}", str(value)])
-        return result
+    Options:
+        version: Install specific version from PyPI (e.g., "0.7.0")
+        hash: Clone repo and checkout specific commit hash
+        top_of_tree: Clone repo at HEAD (latest)
+
+    If top_of_tree or hash is set, version is automatically cleared.
+    """
+
+    version: str | None = "0.7.0"
+    hash: str | None = None
+    top_of_tree: bool = False
+
+    def __post_init__(self) -> None:
+        # Auto-clear version if hash or top_of_tree is set
+        if self.hash is not None or self.top_of_tree:
+            object.__setattr__(self, "version", None)
+
+        # Validate only one source option is set
+        if self.hash is not None and self.top_of_tree:
+            raise ValueError("Cannot specify both hash and top_of_tree")
+
+    @property
+    def needs_source_install(self) -> bool:
+        """Whether this config requires a source install (git clone + maturin)."""
+        return self.hash is not None or self.top_of_tree
+
+    def get_install_commands(self) -> str:
+        """Get the bash commands to install dynamo."""
+        if self.version is not None:
+            return (
+                f"echo 'Installing dynamo {self.version}...' && "
+                f"pip install --quiet ai-dynamo-runtime=={self.version} ai-dynamo=={self.version} && "
+                f"echo 'Dynamo {self.version} installed'"
+            )
+
+        # Source install (hash or top-of-tree)
+        git_ref = self.hash if self.hash else "HEAD"
+        checkout_cmd = f"git checkout {self.hash}" if self.hash else ""
+
+        return (
+            f"echo 'Installing dynamo from source ({git_ref})...' && "
+            "cd /sgl-workspace/ && "
+            "git clone https://github.com/ai-dynamo/dynamo.git && "
+            "cd dynamo && "
+            f"{checkout_cmd + ' && ' if checkout_cmd else ''}"
+            "cd lib/bindings/python/ && "
+            "maturin build -o /tmp && "
+            "pip install /tmp/ai_dynamo_runtime*.whl && "
+            "cd /sgl-workspace/dynamo/ && "
+            "pip install -e . && "
+            "cd /sgl-workspace/sglang/ && "
+            f"echo 'Dynamo installed from source ({git_ref})'"
+        )
 
     Schema: ClassVar[type[Schema]] = Schema
+
+
+@dataclass(frozen=True)
+class FrontendConfig:
+    """Frontend/router configuration.
+
+    Attributes:
+        type: Frontend type - "dynamo" (default) or "sglang"
+        enable_multiple_frontends: Scale with nginx + multiple routers
+        num_additional_frontends: Additional routers beyond master (default: 9)
+        args: CLI arguments passed to the frontend/router process
+        env: Environment variables for frontend processes
+    """
+
+    type: str = "dynamo"
+    enable_multiple_frontends: bool = True
+    num_additional_frontends: int = 9
+    args: dict[str, Any] | None = None
+    env: dict[str, str] | None = None
+
+    Schema: ClassVar[builtins.type[Schema]] = Schema
 
 
 @dataclass(frozen=True)
@@ -548,6 +617,7 @@ class SrtConfig:
     slurm: SlurmConfig = field(default_factory=SlurmConfig)
     backend: Annotated[BackendConfig, BackendConfigField()] = field(default_factory=SGLangProtocol)
     frontend: FrontendConfig = field(default_factory=FrontendConfig)
+    dynamo: DynamoConfig = field(default_factory=DynamoConfig)
     benchmark: BenchmarkConfig = field(default_factory=BenchmarkConfig)
     profiling: ProfilingConfig = field(default_factory=ProfilingConfig)
     output: OutputConfig = field(default_factory=OutputConfig)

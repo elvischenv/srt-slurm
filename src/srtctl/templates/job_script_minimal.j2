@@ -73,14 +73,20 @@ srun --nodes=1 --ntasks=1 --nodelist="${HEAD_NODE}" \
 export PYTHONPATH="${SRTCTL_INSTALL_DIR}:${PYTHONPATH}"
 echo "Installed to ${SRTCTL_INSTALL_DIR}"
 
+{% if setup_script %}
+# Custom setup script override from CLI
+export SRTCTL_SETUP_SCRIPT="{{ setup_script }}"
+{% endif %}
+
 echo "Running orchestrator on host (with srun access)..."
 echo ""
 
 # Run orchestrator on the HOST (not in container) so it has access to srun
 # The orchestrator will spawn containerized workers
-python3 -u -m srtctl.cli.do_sweep "{{ config_path }}" 2>&1 | tee "${LOG_DIR}/orchestrator_${SLURM_JOB_ID}.log"
+# Output goes to SLURM's --output (sweep_%j.log)
+python3 -u -m srtctl.cli.do_sweep "{{ config_path }}"
 
-EXIT_CODE=${PIPESTATUS[0]}
+EXIT_CODE=$?
 
 echo ""
 echo "=========================================="

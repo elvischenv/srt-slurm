@@ -36,6 +36,9 @@ OUTPUT_DIR="${SRTCTL_SOURCE}/outputs/${SLURM_JOB_ID}"
 LOG_DIR="${OUTPUT_DIR}/logs"
 mkdir -p "${LOG_DIR}"
 
+# Export for Python orchestrator to use the same paths
+export SRTCTL_OUTPUT_DIR="${OUTPUT_DIR}"
+
 # Redirect stderr to stdout (SLURM captures both via --output)
 exec 2>&1
 

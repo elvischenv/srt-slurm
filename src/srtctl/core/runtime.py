@@ -123,12 +123,15 @@ class RuntimeContext:
         head_node_ip = get_hostname_ip(nodes.head)
 
         # Compute log directory using FormattablePath or default logic
-        if log_dir_base is None:
+        # Check for SRTCTL_OUTPUT_DIR from sbatch script first (ensures consistency)
+        output_dir_env = os.environ.get("SRTCTL_OUTPUT_DIR")
+        if output_dir_env:
+            log_dir = Path(output_dir_env) / "logs"
+        elif log_dir_base is None:
             log_dir_base = Path.cwd() / "outputs"
-
-        # Simple directory structure: outputs/{job_id}/logs/
-        # This matches the old format and keeps everything organized by job_id
-        log_dir = log_dir_base / job_id / "logs"
+            log_dir = log_dir_base / job_id / "logs"
+        else:
+            log_dir = log_dir_base / job_id / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
 
         # Resolve model path (expand env vars)

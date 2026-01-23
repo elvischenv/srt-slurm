@@ -302,7 +302,7 @@ kv_events_config: true         # prefill+decode with publisher=zmq, topic=kv-eve
 kv_events_config:
   prefill: true
   decode: true
-  # agg: omitted = disabled
+  aggregated: true              # Enable for aggregated workers
 
 # Custom settings
 kv_events_config:
@@ -311,6 +311,7 @@ kv_events_config:
     topic: "prefill-events"
   decode:
     topic: "decode-events"     # publisher defaults to "zmq"
+  aggregated: true             # Enable for aggregated mode
 ```
 
 Each worker leader gets a globally unique port starting at 5550:

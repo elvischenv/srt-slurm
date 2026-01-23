@@ -138,7 +138,12 @@ class SGLangProtocol:
 
         # Per-mode config dict
         if isinstance(self.kv_events_config, dict):
-            mode_cfg = self.kv_events_config.get(mode)
+            # Normalize mode key: use "aggregated" for aggregated mode
+            if mode == "agg":
+                mode_cfg = self.kv_events_config.get("aggregated")
+            else:
+                mode_cfg = self.kv_events_config.get(mode)
+            
             if mode_cfg is None:
                 return None
             if mode_cfg is True:

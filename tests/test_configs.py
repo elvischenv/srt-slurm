@@ -219,6 +219,21 @@ class TestSGLangProtocol:
         assert decode_cfg["publisher"] == "custom"
         assert decode_cfg["topic"] == "decode-events"
 
+    def test_kv_events_config_aggregated(self):
+        """Test kv_events_config with aggregated key."""
+        config = SGLangProtocol(
+            kv_events_config={
+                "aggregated": True,
+            }
+        )
+
+        assert config.get_kv_events_config_for_mode("agg") == {
+            "publisher": "zmq",
+            "topic": "kv-events",
+        }
+        assert config.get_kv_events_config_for_mode("prefill") is None
+        assert config.get_kv_events_config_for_mode("decode") is None
+
     def test_kv_events_config_disabled(self):
         """Test kv_events_config disabled by default."""
         config = SGLangProtocol()

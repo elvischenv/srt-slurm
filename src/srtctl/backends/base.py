@@ -121,3 +121,7 @@ class BackendProtocol(Protocol):
             Dict of environment variable names to values.
         """
         ...
+
+    def get_served_model_name(self, default: str) -> str:
+        """Get served model name from backend config, or return default."""
+        ...

@@ -265,6 +265,48 @@ class TestSGLangProtocol:
         assert config.is_grpc_mode("agg") is False
 
 
+class TestServedModelName:
+    """Tests for served_model_name property extraction from backend configs."""
+
+    def test_vllm_served_model_name_extracted_from_config(self):
+        """Test vLLM extracts served_model_name from config instead of using path basename.
+
+        This was a bug where vLLM backend didn't implement get_served_model_name(),
+        causing the benchmark to use the model path basename (e.g., "hf-d47b0d4-nim-bf16")
+        instead of the configured name (e.g., "Qwen/Qwen3-32B").
+        """
+        from srtctl.backends import VLLMProtocol, VLLMServerConfig
+        from srtctl.core.schema import ModelConfig, ResourceConfig, SrtConfig
+
+        config = SrtConfig(
+            name="test",
+            model=ModelConfig(path="/models/hf-d47b0d4-nim-bf16", container="/container.sqsh", precision="bf16"),
+            resources=ResourceConfig(gpu_type="h100", gpus_per_node=8, agg_nodes=1, agg_workers=1),
+            backend=VLLMProtocol(
+                vllm_config=VLLMServerConfig(
+                    aggregated={"served-model-name": "Qwen/Qwen3-32B"},
+                )
+            ),
+        )
+
+        # Should use configured name, not path basename
+        assert config.served_model_name == "Qwen/Qwen3-32B"
+
+    def test_vllm_served_model_name_fallback_to_path(self):
+        """Test vLLM falls back to model path basename when not configured."""
+        from srtctl.backends import VLLMProtocol
+        from srtctl.core.schema import ModelConfig, ResourceConfig, SrtConfig
+
+        config = SrtConfig(
+            name="test",
+            model=ModelConfig(path="/models/Qwen/Qwen3-32B", container="/container.sqsh", precision="bf16"),
+            resources=ResourceConfig(gpu_type="h100", gpus_per_node=8, agg_nodes=1, agg_workers=1),
+            backend=VLLMProtocol(),  # No vllm_config
+        )
+
+        assert config.served_model_name == "Qwen3-32B"
+
+
 class TestFrontendConfig:
     """Tests for FrontendConfig."""
 

@@ -135,6 +135,16 @@ class VLLMProtocol:
             env["VLLM_NIXL_SIDE_CHANNEL_PORT"] = str(process.nixl_port)
         return env
 
+    def get_served_model_name(self, default: str) -> str:
+        """Get served model name from vLLM config, or return default."""
+        if self.vllm_config:
+            for cfg in [self.vllm_config.prefill, self.vllm_config.aggregated, self.vllm_config.decode]:
+                if cfg:
+                    name = cfg.get("served-model-name") or cfg.get("served_model_name")
+                    if name:
+                        return name
+        return default
+
     def allocate_endpoints(
         self,
         num_prefill: int,

@@ -821,18 +821,8 @@ class SrtConfig:
     @property
     def served_model_name(self) -> str:
         """Get the served model name from backend config or model path."""
-        # Try SGLang-specific extraction
-        if isinstance(self.backend, SGLangProtocol) and self.backend.sglang_config:
-            for cfg in [
-                self.backend.sglang_config.prefill,
-                self.backend.sglang_config.aggregated,
-            ]:
-                if cfg:
-                    name = cfg.get("served-model-name") or cfg.get("served_model_name")
-                    if name:
-                        return name
-        # Fallback to model path basename
-        return Path(self.model.path).name
+        default = Path(self.model.path).name
+        return self.backend.get_served_model_name(default)
 
     @property
     def backend_type(self) -> str:

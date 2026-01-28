@@ -6,7 +6,7 @@
 # Tests KV-aware routing vs round-robin using Mooncake conversation trace
 # Based on dynamo exemplar for Qwen3-32B
 #
-# Usage: bench.sh ENDPOINT MODEL_NAME [WORKLOAD] [TTFT_THRESHOLD] [ITL_THRESHOLD]
+# Usage: bench.sh ENDPOINT MODEL_NAME [WORKLOAD] [TTFT_THRESHOLD] [ITL_THRESHOLD] [TOKENIZER_PATH]
 
 set -e
 
@@ -15,6 +15,7 @@ MODEL_NAME=${2:-"Qwen/Qwen3-32B"}
 WORKLOAD=${3:-"conversation"}
 TTFT_THRESHOLD=${4:-2000}
 ITL_THRESHOLD=${5:-25}
+TOKENIZER_PATH=${6:-"/model"}
 
 # Setup directories
 BASE_DIR="/logs"
@@ -31,6 +32,7 @@ echo "Model: ${MODEL_NAME}"
 echo "Workload: ${WORKLOAD}"
 echo "TTFT Threshold: ${TTFT_THRESHOLD}ms"
 echo "ITL Threshold: ${ITL_THRESHOLD}ms"
+echo "Tokenizer Path: ${TOKENIZER_PATH}"
 echo "=============================================="
 
 # Install aiperf if not present
@@ -59,6 +61,7 @@ fi
 echo "Running small benchmark for warmup..."
 aiperf profile \
     -m "${MODEL_NAME}" \
+    --tokenizer "${TOKENIZER_PATH}" \
     --url "${ENDPOINT}" \
     --streaming \
     --ui simple \
@@ -82,6 +85,7 @@ echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting benchmark"
 # Run aiperf profile exactly as dynamo does
 aiperf profile \
     -m "${MODEL_NAME}" \
+    --tokenizer "${TOKENIZER_PATH}" \
     --input-file "${INPUT_FILE}" \
     --custom-dataset-type mooncake_trace \
     --fixed-schedule \

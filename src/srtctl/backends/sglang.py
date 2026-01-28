@@ -130,6 +130,16 @@ class SGLangProtocol:
         config = self.get_config_for_mode(mode)
         return config.get("grpc-mode", False)
 
+    def get_served_model_name(self, default: str) -> str:
+        """Get served model name from SGLang config, or return default."""
+        if self.sglang_config:
+            for cfg in [self.sglang_config.prefill, self.sglang_config.aggregated, self.sglang_config.decode]:
+                if cfg:
+                    name = cfg.get("served-model-name") or cfg.get("served_model_name")
+                    if name:
+                        return name
+        return default
+
     def get_kv_events_config_for_mode(self, mode: WorkerMode) -> dict[str, str] | None:
         """Get kv-events config for a worker mode.
 

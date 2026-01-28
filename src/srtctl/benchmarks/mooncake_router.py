@@ -97,6 +97,9 @@ class MooncakeRouterRunner(BenchmarkRunner):
         ttft_threshold = getattr(b, "ttft_threshold_ms", None) or 2000
         itl_threshold = getattr(b, "itl_threshold_ms", None) or 25
 
+        # Tokenizer path - the model is mounted at /model in the container
+        tokenizer_path = "/model"
+
         return [
             "bash",
             self.script_path,
@@ -105,4 +108,5 @@ class MooncakeRouterRunner(BenchmarkRunner):
             workload,
             str(ttft_threshold),
             str(itl_threshold),
+            tokenizer_path,
         ]

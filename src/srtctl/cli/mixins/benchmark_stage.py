@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from srtctl.core.processes import ProcessRegistry
     from srtctl.core.runtime import RuntimeContext
     from srtctl.core.schema import SrtConfig
-    from srtctl.core.topology import Endpoint
+    from srtctl.core.topology import Endpoint, Process
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ class BenchmarkStageMixin:
         self.config: SrtConfig
         self.runtime: RuntimeContext
         self.endpoints: list[Endpoint]
+        self.backend_processes: list[Process]
     """
 
     # Type hints for mixin dependencies
@@ -44,6 +45,11 @@ class BenchmarkStageMixin:
     @property
     def endpoints(self) -> list["Endpoint"]:
         """Endpoint allocation topology."""
+        ...
+
+    @property
+    def backend_processes(self) -> list["Process"]:
+        """Backend worker processes."""
         ...
 
     def run_benchmark(
@@ -251,19 +257,30 @@ class BenchmarkStageMixin:
 
         return env
 
+    def _get_aiperf_server_metrics_env(self) -> dict[str, str]:
+        """Build server metrics URLs for AIPerf benchmarks.
+
+        Collects metrics endpoints from all backend processes that expose
+        a sys_port (vLLM workers with AIPerf metrics enabled).
+        """
+        urls: list[str] = []
+        for process in self.backend_processes:
+            if process.sys_port > 0:
+                host = get_hostname_ip(process.node, self.runtime.network_interface)
+                urls.append(f"http://{host}:{process.sys_port}/metrics")
+
+        if not urls:
+            return {}
+        return {"AIPERF_SERVER_METRICS_URLS": ",".join(sorted(set(urls)))}
+
     def _get_benchmark_env(self, runner: "BenchmarkRunner") -> dict[str, str]:
         """Get environment variables for the benchmark script."""
+        from srtctl.benchmarks.base import AIPerfBenchmarkRunner
+
         env = self._get_benchmark_profiling_env(runner)
 
-        backend_env_hook = getattr(self.config.backend, "get_benchmark_env", None)
-        if callable(backend_env_hook):
-            env.update(
-                backend_env_hook(
-                    runtime=self.runtime,
-                    processes=self.backend_processes,
-                    benchmark_type=self.config.benchmark.type,
-                    runner=runner,
-                )
-            )
+        # Add AIPerf metrics URLs for AIPerf-driven benchmarks
+        if isinstance(runner, AIPerfBenchmarkRunner):
+            env.update(self._get_aiperf_server_metrics_env())
 
         return env

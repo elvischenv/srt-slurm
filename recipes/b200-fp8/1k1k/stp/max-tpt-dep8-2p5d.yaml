@@ -2,7 +2,7 @@ name: "b200-fp8-max-tpt-dep8-2p-5d"
 
 model:
   path: "dsfp8"
-  container: "0.5.8"
+  container: "lmsysorg/sglang:v0.5.8-cu130-runtime"
   precision: "fp8"
 
 resources:

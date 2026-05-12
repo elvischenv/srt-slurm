@@ -1,4 +1,4 @@
-name: "dsv4-pro-gb300-disagg-8k1k-mid-curve-1p1d-dep4-dep16"
+name: "dsv4-pro-gb300-disagg-8k1k-mid-curve-1p1d-dep4-dep16-mtp"
 
 frontend:
   type: dynamo
@@ -6,13 +6,17 @@ frontend:
   num_additional_frontends: 8
 
 dynamo:
-  hash: "9d3c913d300eb368cda28b3f98a23a5762621e0d"
+  hash: "34d55a596fb8d3d44daefe425ec1e303131f4d2c"
   install: true
 
 model:
-  path: "dsv4-pro"
-  container: "dsv4-grace-blackwell"
+  path: "deepseek-v4-pro"
+  container: "lmsysorg/sglang:nightly-dev-cu13-20260510-2473659e"
   precision: "mxfp4"
+
+sbatch_directives:
+  cpus-per-task: "144"
+  mem: "0"
 
 resources:
   gpu_type: "gb300"
@@ -29,9 +33,10 @@ backend:
 
   prefill_environment:
     PYTHONUNBUFFERED: "1"
-    SGLANG_JIT_DEEPGEMM_PRECOMPILE: "0"
-    SGLANG_ENABLE_THINKING: "1"
-    SGLANG_REASONING_EFFORT: "max"
+    SGLANG_RADIX_DISABLE_REUSE: "1"
+    SGLANG_JIT_DEEPGEMM_FAST_WARMUP: "1"
+    SGLANG_DEFAULT_THINKING: "1"
+    SGLANG_DSV4_REASONING_EFFORT: "max"
     SGLANG_OPT_SWA_SPLIT_LEAF_ON_INSERT: "1"
     SGLANG_OPT_USE_JIT_NORM: "1"
     SGLANG_OPT_USE_JIT_INDEXER_METADATA: "1"
@@ -57,9 +62,10 @@ backend:
 
   decode_environment:
     PYTHONUNBUFFERED: "1"
-    SGLANG_JIT_DEEPGEMM_PRECOMPILE: "0"
-    SGLANG_ENABLE_THINKING: "1"
-    SGLANG_REASONING_EFFORT: "max"
+    SGLANG_RADIX_DISABLE_REUSE: "1"
+    SGLANG_JIT_DEEPGEMM_FAST_WARMUP: "1"
+    SGLANG_DEFAULT_THINKING: "1"
+    SGLANG_DSV4_REASONING_EFFORT: "max"
     SGLANG_OPT_SWA_SPLIT_LEAF_ON_INSERT: "1"
     SGLANG_OPT_USE_JIT_NORM: "1"
     SGLANG_OPT_USE_JIT_INDEXER_METADATA: "1"
@@ -81,15 +87,14 @@ backend:
     SGLANG_DISAGGREGATION_BOOTSTRAP_TIMEOUT: "100000"
     SGLANG_DISAGGREGATION_WAITING_TIMEOUT: "100000"
     SGLANG_OPT_SWA_RELEASE_LEAF_LOCK_AFTER_WINDOW: "1"
-    # SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2 intentionally NOT set: CAR_V2
-    # is single-node only and corrupts results in 2-node decode setups.
+    SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2: "0"  # CAR_V2 is single-node only.
 
   sglang_config:
     prefill:
       served-model-name: "deepseek-ai/DeepSeek-V4-Pro"
       model-path: "/model/"
       trust-remote-code: true
-      disable-radix-cache: true
+      tool-call-parser: deepseekv4  # gates dsv4 chat-encoding spec.
 
       disaggregation-mode: "prefill"
       disaggregation-transfer-backend: mooncake
@@ -114,7 +119,7 @@ backend:
       served-model-name: "deepseek-ai/DeepSeek-V4-Pro"
       model-path: "/model/"
       trust-remote-code: true
-      disable-radix-cache: true
+      tool-call-parser: deepseekv4  # gates dsv4 chat-encoding spec.
 
       disaggregation-mode: "decode"
       disaggregation-transfer-backend: mooncake
